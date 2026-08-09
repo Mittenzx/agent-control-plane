@@ -1,2 +1,0 @@
-[console_scripts]
-agent-cp = control_plane.__main__:main
