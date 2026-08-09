@@ -1,0 +1,105 @@
+{
+  "name": "my-agent-control-plane",
+  "version": "0.1.0",
+  "log_level": "INFO",
+  "data_dir": "./data",
+  "agents": [
+    {
+      "type": "research_agent",
+      "name": "researcher",
+      "capabilities": [
+        {
+          "name": "research",
+          "description": "Web research and information gathering",
+          "input_schema": {"topic": "string", "depth": "string"},
+          "output_schema": {"findings": "array", "sources": "array", "confidence": "number"},
+          "tags": ["research", "web"]
+        },
+        {
+          "name": "summarize",
+          "description": "Summarize long texts",
+          "input_schema": {"text": "string", "max_length": "integer"},
+          "output_schema": {"summary": "string", "key_points": "array"},
+          "tags": ["nlp", "summarization"]
+        }
+      ],
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0.3,
+        "max_tokens": 3000
+      },
+      "enabled": true,
+      "auto_start": true
+    },
+    {
+      "type": "coder_agent",
+      "name": "coder",
+      "capabilities": [
+        {
+          "name": "code_generation",
+          "description": "Generate code from specifications",
+          "input_schema": {"specification": "string", "language": "string", "framework": "string"},
+          "output_schema": {"code": "string", "language": "string", "tests": "array"},
+          "tags": ["coding", "generation"]
+        },
+        {
+          "name": "code_review",
+          "description": "Review code for issues",
+          "input_schema": {"code": "string", "language": "string"},
+          "output_schema": {"issues": "array", "score": "number", "suggestions": "array"},
+          "tags": ["coding", "review"]
+        }
+      ],
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0.2,
+        "max_tokens": 4000
+      },
+      "enabled": true,
+      "auto_start": true
+    },
+    {
+      "type": "planner_agent",
+      "name": "planner",
+      "capabilities": [
+        {
+          "name": "task_planning",
+          "description": "Break down goals into executable tasks",
+          "input_schema": {"goal": "string", "constraints": "object"},
+          "output_schema": {"plan": "array", "estimated_steps": "integer"},
+          "tags": ["planning", "decomposition"]
+        },
+        {
+          "name": "workflow_design",
+          "description": "Design multi-step workflows with dependencies",
+          "input_schema": {"objective": "string", "available_capabilities": "array"},
+          "output_schema": {"workflow": "object"},
+          "tags": ["planning", "workflow"]
+        }
+      ],
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0.5,
+        "max_tokens": 2000
+      },
+      "enabled": true,
+      "auto_start": true
+    }
+  ],
+  "plugins": [],
+  "max_concurrent_tasks": 10,
+  "default_task_timeout": 300.0,
+  "scheduler_interval": 1.0,
+  "message_history_size": 10000,
+  "request_timeout": 30.0,
+  "custom": {
+    "api_keys": {
+      "openai": "${OPENAI_API_KEY}",
+      "anthropic": "${ANTHROPIC_API_KEY}"
+    },
+    "features": {
+      "metrics_enabled": true,
+      "tracing_enabled": false
+    }
+  }
+}
