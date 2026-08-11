@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Control Plane Dashboard Mockup</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background:#0a0e1a; color:#e5e7eb; padding:24px; }
+  .term { max-width:1200px; margin:0 auto; border:1px solid #1f2937; border-radius:12px; overflow:hidden; background:#0d1220; }
+  .term-bar { display:flex; align-items:center; gap:8px; background:#111827; padding:10px 16px; border-bottom:1px solid #1f2937; }
+  .term-bar .dot { width:12px; height:12px; border-radius:50%; }
+  .term-bar .title { margin-left:12px; font-size:13px; color:#9ca3af; }
+  .term-body { padding:24px; }
+  h1 { font-size:20px; color:#fff; font-weight:700; }
+  .sub { font-size:12px; color:#6b7280; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
+  .card { background:#111827; border:1px solid #1f2937; border-radius:10px; padding:14px; }
+  .card .label { font-size:11px; color:#6b7280; margin-bottom:6px; }
+  .card .val { font-size:22px; font-weight:700; color:#fff; }
+  .val.green { color:#34d399; } .val.rose { color:#fb7185; } .val.cyan { color:#22d3ee; } .val.violet { color:#a78bfa; }
+  .panels { display:grid; grid-template-columns:1fr 2fr; gap:12px; margin-bottom:12px; }
+  .panel { background:#111827; border:1px solid #1f2937; border-radius:10px; padding:16px; }
+  .panel h3 { font-size:13px; color:#fff; margin-bottom:12px; display:flex; justify-content:space-between; }
+  .agent { display:flex; align-items:center; justify-content:space-between; background:#0d1220; border:1px solid #1f2937; border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .agent .nm { font-size:13px; color:#fff; font-weight:600; }
+  .agent .ty { font-size:11px; color:#6b7280; }
+  .badge { display:inline-flex; align-items:center; gap:5px; font-size:11px; }
+  .badge .bd { width:7px; height:7px; border-radius:50%; }
+  .bd-green{background:#34d399;} .bd-cyan{background:#22d3ee;} .bd-amber{background:#fbbf24;} .bd-rose{background:#fb7185;}
+  .tags { display:flex; gap:4px; margin-top:6px; flex-wrap:wrap; }
+  .tag { font-size:10px; background:#1f2937; color:#22d3ee; border-radius:4px; padding:2px 6px; }
+  .task { background:#0d1220; border:1px solid #1f2937; border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .task .row { display:flex; align-items:center; justify-content:space-between; }
+  .task .tname { font-size:13px; color:#fff; font-weight:600; }
+  .task .meta { font-size:11px; color:#6b7280; margin-top:4px; }
+  .bottom { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .fb { background:#111827; border:1px solid #1f2937; border-radius:10px; padding:16px; }
+  .fb h3 { font-size:13px; color:#fff; margin-bottom:12px; }
+  .wf { display:flex; justify-content:space-between; background:#0d1220; border:1px solid #1f2937; border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:13px; }
+  .ev { background:#0d1220; border:1px solid #1f2937; border-radius:8px; padding:8px 12px; margin-bottom:6px; font-size:11px; display:flex; justify-content:space-between; }
+  .ev .k { color:#22d3ee; }
+</style>
+</head>
+<body>
+<div class="term">
+  <div class="term-bar">
+    <div class="dot" style="background:#fb7185"></div>
+    <div class="dot" style="background:#fbbf24"></div>
+    <div class="dot" style="background:#34d399"></div>
+    <div class="title">Agent Control Plane — http://localhost:8080</div>
+  </div>
+  <div class="term-body">
+    <h1>⚡ Agent Control Plane</h1>
+    <div class="sub">Real-time AI agent orchestration · WebSocket live updates</div>
+
+    <div class="grid">
+      <div class="card"><div class="label">Total Tasks</div><div class="val">18</div></div>
+      <div class="card"><div class="label">Completed</div><div class="val green">14</div></div>
+      <div class="card"><div class="label">Failed</div><div class="val rose">1</div></div>
+      <div class="card"><div class="label">Active Agents</div><div class="val cyan">3</div></div>
+      <div class="card"><div class="label">Total Agents</div><div class="val violet">3</div></div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Agents <span style="color:#6b7280;font-size:11px">3 online</span></h3>
+        <div class="agent">
+          <div><div class="nm">researcher</div><div class="ty">research_agent</div></div>
+          <span class="badge"><span class="bd bd-green"></span>idle</span>
+        </div>
+        <div class="tags"><span class="tag">research</span><span class="tag">summarize</span></div>
+        <div class="agent">
+          <div><div class="nm">coder</div><div class="ty">coder_agent</div></div>
+          <span class="badge"><span class="bd bd-cyan"></span>running</span>
+        </div>
+        <div class="tags"><span class="tag">code_generation</span><span class="tag">code_review</span></div>
+        <div class="agent">
+          <div><div class="nm">planner</div><div class="ty">planner_agent</div></div>
+          <span class="badge"><span class="bd bd-green"></span>idle</span>
+        </div>
+        <div class="tags"><span class="tag">task_planning</span><span class="tag">workflow_design</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>Tasks <span style="color:#6b7280;font-size:11px">[task-name] [capability] (Submit)</span></h3>
+        <div class="task"><div class="row"><span class="tname">Implement REST API endpoints</span><span class="badge"><span class="bd bd-cyan"></span>running</span></div><div class="meta">Capability: code_generation · Priority: 6</div></div>
+        <div class="task"><div class="row"><span class="tname">Research AI trends</span><span class="badge"><span class="bd bd-green"></span>completed</span></div><div class="meta">Capability: research · Priority: 8 · Result: {"findings": [...], "confidence": 0.85}</div></div>
+        <div class="task"><div class="row"><span class="tname">Design architecture</span><span class="badge"><span class="bd bd-green"></span>completed</span></div><div class="meta">Capability: workflow_design · Priority: 10</div></div>
+        <div class="task"><div class="row"><span class="tname">Code review pass</span><span class="badge"><span class="bd bd-amber"></span>queued</span></div><div class="meta">Capability: code_review · Priority: 4 · Waiting on dependencies</div></div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="fb">
+        <h3>Workflows</h3>
+        <div class="wf"><span>Build REST API</span><span style="color:#22d3ee">● running</span></div>
+        <div class="wf"><span>Content pipeline</span><span style="color:#34d399">● completed</span></div>
+        <div class="wf"><span>Data migration</span><span style="color:#fb7185">● failed</span></div>
+      </div>
+      <div class="fb">
+        <h3>Live Events</h3>
+        <div class="ev"><span class="k">task.completed</span><span>12:04:03</span></div>
+        <div class="ev"><span class="k">task.started</span><span>12:04:01</span></div>
+        <div class="ev"><span class="k">agent.registered</span><span>12:02:15</span></div>
+        <div class="ev"><span class="k">task.submitted</span><span>12:02:10</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

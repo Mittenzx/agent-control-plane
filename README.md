@@ -21,8 +21,56 @@ control_plane/
 ├── messaging/         # Message bus, request/response, event bus
 ├── plugins/           # Plugin manager, capability registry, agent factory
 ├── config/            # Configuration management
+├── web/               # Real-time web dashboard (FastAPI + WebSockets)
 └── examples/          # Example agents and usage
 ```
+
+## Web Dashboard
+
+The control plane ships with a real-time monitoring dashboard built on **FastAPI + WebSockets + HTMX/Alpine.js**. It gives you live visibility into agents, tasks, workflows, and system metrics — no build step required.
+
+### Start the dashboard
+
+```bash
+# From the project root
+python -m control_plane.web
+# Or via uvicorn directly
+python -m uvicorn control_plane.web.server:app --port 8080
+```
+
+Then open **http://localhost:8080** in your browser.
+
+### Features
+
+- **Live agent registry** — status, type, and capabilities of every registered agent
+- **Task board** — submit tasks from the UI, track pending → running → completed in real time
+- **Workflow view** — monitor multi-step workflows and their task dependencies
+- **System metrics** — total/completed/failed tasks, active agent count
+- **WebSocket push** — the dashboard updates in real time as agents work, no page refresh
+- **REST API** — full programmatic control (`/api/agents`, `/api/tasks`, `/api/workflows`, `/api/state`, ...)
+- **Interactive task submission** — create tasks with name + required capability from the UI
+
+### Screenshot
+
+![Agent Control Plane Dashboard](docs/dashboard-screenshot.png)
+
+> A static HTML mockup is also available at [`docs/dashboard-mockup.html`](docs/dashboard-mockup.html).
+
+### API endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Dashboard UI |
+| GET | `/api/state` | Full snapshot (agents, tasks, workflows, metrics) |
+| GET | `/api/agents` | List all registered agents |
+| POST | `/api/agents/{id}/shutdown` | Stop an agent |
+| GET | `/api/tasks` | List all tasks |
+| POST | `/api/tasks` | Submit a new task |
+| POST | `/api/tasks/{id}/cancel` | Cancel a task |
+| GET | `/api/workflows` | List all workflows |
+| POST | `/api/workflows` | Create a workflow |
+| GET | `/api/metrics` | System metrics |
+| WS | `/ws` | Real-time WebSocket event stream |
 
 ## Quick Start
 

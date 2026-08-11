@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Control Plane Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0a0e1a',
+                        cardbg: '#111827',
+                        border: '#1f2937',
+                        accent: '#22d3ee',
+                        accent2: '#34d399',
+                        accent3: '#a78bfa',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', -apple-system, sans-serif; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-green { background: #34d399; }
+        .dot-yellow { background: #fbbf24; }
+        .dot-red { background: #fb7185; }
+        .dot-blue { background: #22d3ee; }
+        .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; }
+        .scrollbar::-webkit-scrollbar { width: 6px; }
+        .scrollbar::-webkit-scrollbar-track { background: #0a0e1a; }
+        .scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100% {opacity:1} 50% {opacity:.5} }
+        .flash-row { animation: flash 1s ease; }
+        @keyframes flash { from { background: rgba(34,211,238,0.15); } to { background: transparent; } }
+    </style>
+</head>
+<body class="bg-darkbg text-gray-200 min-h-screen">
+    <div class="max-w-7xl mx-auto p-4 md:p-6">
+        <!-- Header -->
+        <header class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-white">Agent Control Plane</h1>
+                    <p class="text-xs text-gray-500">Real-time AI Agent Orchestration</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="ws-status" class="flex items-center gap-2 text-xs text-gray-400">
+                    <span id="ws-dot" class="dot dot-yellow"></span>
+                    <span id="ws-text">Connecting...</span>
+                </div>
+                <button onclick="window.location.reload()" class="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors">Refresh</button>
+            </div>
+        </header>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6" id="stats-grid">
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Total Tasks</div>
+                <div id="stat-total" class="text-2xl font-bold text-white">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Completed</div>
+                <div id="stat-completed" class="text-2xl font-bold text-emerald-400">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Failed</div>
+                <div id="stat-failed" class="text-2xl font-bold text-rose-400">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Active Agents</div>
+                <div id="stat-active-agents" class="text-2xl font-bold text-cyan-400">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Total Agents</div>
+                <div id="stat-total-agents" class="text-2xl font-bold text-violet-400">0</div>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+            <!-- Agents Panel -->
+            <div class="lg:col-span-1 card p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-white">Agents</h2>
+                    <span id="agent-count" class="text-xs text-gray-500">0 online</span>
+                </div>
+                <div id="agents-list" class="space-y-2 max-h-96 overflow-y-auto scrollbar pr-1">
+                    <div class="text-xs text-gray-600 py-8 text-center">Loading agents...</div>
+                </div>
+            </div>
+
+            <!-- Tasks Panel -->
+            <div class="lg:col-span-2 card p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-white">Tasks</h2>
+                    <div class="flex gap-2">
+                        <input id="task-name" type="text" placeholder="Task name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
+                        <input id="task-capability" type="text" placeholder="Capability" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
+                        <button onclick="createTask()" class="px-3 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors">Submit</button>
+                    </div>
+                </div>
+                <div id="tasks-list" class="space-y-2 max-h-96 overflow-y-auto scrollbar pr-1">
+                    <div class="text-xs text-gray-600 py-8 text-center">Loading tasks...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Workflows Panel -->
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-white">Workflows</h2>
+                    <button onclick="refreshWorkflows()" class="text-xs text-gray-400 hover:text-cyan-400 transition-colors">Refresh</button>
+                </div>
+                <div id="workflows-list" class="space-y-2 max-h-64 overflow-y-auto scrollbar pr-1">
+                    <div class="text-xs text-gray-600 py-6 text-center">No workflows yet</div>
+                </div>
+            </div>
+
+            <!-- Events Panel -->
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-white">Live Events</h2>
+                    <button onclick="clearEvents()" class="text-xs text-gray-400 hover:text-rose-400 transition-colors">Clear</button>
+                </div>
+                <div id="events-list" class="space-y-1.5 max-h-64 overflow-y-auto scrollbar pr-1">
+                    <div class="text-xs text-gray-600 py-6 text-center">No events yet</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-6 text-center text-xs text-gray-600">
+            Agent Control Plane v0.1.0 · Real-time monitoring via WebSocket
+        </footer>
+    </div>
+
+    <script>
+        // WebSocket connection for real-time updates
+        let ws = null;
+        
+        function connectWS() {
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            ws = new WebSocket(protocol + window.location.host + '/ws');
+            
+            ws.onopen = () => {
+                document.getElementById('ws-dot').className = 'dot dot-green';
+                document.getElementById('ws-text').textContent = 'Connected';
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('ws-dot').className = 'dot dot-red';
+                document.getElementById('ws-text').textContent = 'Disconnected - retrying...';
+                setTimeout(connectWS, 3000);
+            };
+            
+            ws.onerror = (err) => {
+                console.error('WebSocket error:', err);
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.event === 'state_update' || msg.event === 'initial_state') {
+                        renderState(msg.data);
+                    }
+                } catch (e) {
+                    console.error('Error parsing message:', e);
+                }
+            };
+        }
+        
+        // Status badge helper
+        function statusBadge(status) {
+            const map = {
+                'PENDING': ['text-yellow-400', 'dot-yellow'],
+                'QUEUED': ['text-yellow-400', 'dot-yellow'],
+                'RUNNING': ['text-cyan-400', 'dot-blue'],
+                'COMPLETED': ['text-emerald-400', 'dot-green'],
+                'FAILED': ['text-rose-400', 'dot-red'],
+                'CANCELLED': ['text-gray-400', 'dot-gray'],
+                'INITIALIZING': ['text-cyan-400', 'dot-blue'],
+                'IDLE': ['text-gray-400', 'dot-gray'],
+                'READY': ['text-emerald-400', 'dot-green'],
+                'SHUTDOWN': ['text-gray-500', 'dot-gray'],
+            };
+            const [color, dot] = map[status] || ['text-gray-400', 'dot-gray'];
+            return `<span class="inline-flex items-center gap-1.5 text-xs ${color}"><span class="dot ${dot}"></span>${status}</span>`;
+        }
+        
+        // Render full state
+        function renderState(state) {
+            // Update stats
+            const m = state.metrics || {};
+            document.getElementById('stat-total').textContent = m.total_tasks || 0;
+            document.getElementById('stat-completed').textContent = m.completed_tasks || 0;
+            document.getElementById('stat-failed').textContent = m.failed_tasks || 0;
+            document.getElementById('stat-active-agents').textContent = m.active_agents || 0;
+            document.getElementById('stat-total-agents').textContent = m.total_agents || 0;
+            
+            renderAgents(state.agents || []);
+            renderTasks(state.tasks || []);
+        }
+        
+        // Render agents
+        function renderAgents(agents) {
+            const container = document.getElementById('agents-list');
+            if (!agents.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No agents registered</div>';
+                return;
+            }
+            
+            document.getElementById('agent-count').textContent = `${agents.length} online`;
+            
+            container.innerHTML = agents.map(agent => `
+                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-white">${agent.name}</span>
+                        ${statusBadge(agent.status)}
+                    </div>
+                    <div class="text-xs text-gray-500 mb-1.5">${agent.type}</div>
+                    <div class="flex flex-wrap gap-1">
+                        ${(agent.capabilities || []).map(cap => 
+                            `<span class="px-1.5 py-0.5 text-[10px] bg-gray-800 text-cyan-400 rounded">${cap}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Render tasks
+        function renderTasks(tasks) {
+            const container = document.getElementById('tasks-list');
+            if (!tasks.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No tasks submitted</div>';
+                return;
+            }
+            
+            // Sort: running first, then pending, then completed
+            const order = {'RUNNING': 0, 'QUEUED': 1, 'PENDING': 2, 'COMPLETED': 3, 'FAILED': 4};
+            const sorted = [...tasks].sort((a, b) => 
+                (order[a.status] ?? 9) - (order[b.status] ?? 9) || (b.priority - a.priority)
+            );
+            
+            container.innerHTML = sorted.map(task => `
+                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-white">${task.name}</span>
+                        ${statusBadge(task.status)}
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-gray-500">
+                        <span>Capability: <span class="text-cyan-400">${task.required_capability || 'any'}</span></span>
+                        <span>Priority: ${task.priority}</span>
+                    </div>
+                    ${task.result ? `<div class="mt-2 text-xs text-gray-400 bg-gray-800 rounded p-2">Result: ${JSON.stringify(task.result).slice(0, 150)}</div>` : ''}
+                    ${task.error ? `<div class="mt-2 text-xs text-rose-400 bg-rose-950/50 rounded p-2">${task.error}</div>` : ''}
+                </div>
+            `).join('');
+        }
+        
+        // Create a new task
+        async function createTask() {
+            const name = document.getElementById('task-name').value;
+            const capability = document.getElementById('task-capability').value;
+            if (!name) {
+                alert('Please enter a task name');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        description: 'Submitted from dashboard',
+                        required_capability: capability || 'research',
+                        payload: {},
+                        priority: 5
+                    })
+                });
+                const data = await res.json();
+                if (data.task_id) {
+                    document.getElementById('task-name').value = '';
+                    document.getElementById('task-capability').value = '';
+                    addEvent('task.submitted', {task_name: name});
+                } else {
+                    alert('Error: ' + JSON.stringify(data));
+                }
+            } catch (e) {
+                console.error('Error creating task:', e);
+                alert('Failed to create task');
+            }
+        }
+        
+        // Load workflows
+        async function refreshWorkflows() {
+            try {
+                const res = await fetch('/api/workflows');
+                const data = await res.json();
+                renderWorkflows(data.workflows || []);
+            } catch (e) {
+                console.error('Error loading workflows:', e);
+            }
+        }
+        
+        function renderWorkflows(workflows) {
+            const container = document.getElementById('workflows-list');
+            if (!workflows.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 py-6 text-center">No workflows yet</div>';
+                return;
+            }
+            
+            container.innerHTML = workflows.map(wf => `
+                <div class="border border-gray-800 rounded-lg p-3 bg-gray-900">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-white">${wf.name}</span>
+                        ${statusBadge(wf.status)}
+                    </div>
+                    <div class="text-xs text-gray-500">${(wf.tasks || []).length} tasks · ${wf.id.slice(0,8)}</div>
+                    <div class="flex flex-wrap gap-1 mt-2">
+                        ${(wf.tasks || []).map(t => 
+                            `<span class="px-1.5 py-0.5 text-[10px] ${t.status === 'COMPLETED' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-gray-800 text-gray-400'} rounded">${t.name}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Events log
+        function addEvent(eventType, data) {
+            const container = document.getElementById('events-list');
+            if (container.querySelector('.py-6')) container.innerHTML = '';
+            
+            const now = new Date().toLocaleTimeString();
+            const colors = {
+                'task.submitted': 'text-cyan-400',
+                'task.started': 'text-blue-400',
+                'task.completed': 'text-emerald-400',
+                'task.failed': 'text-rose-400',
+                'agent.registered': 'text-violet-400',
+                'agent.status_changed': 'text-yellow-400',
+            };
+            
+            const el = document.createElement('div');
+            el.className = 'border border-gray-800 rounded p-2 bg-gray-900 flash-row';
+            el.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="text-xs ${colors[eventType] || 'text-gray-400'}">${eventType}</span>
+                    <span class="text-[10px] text-gray-600">${now}</span>
+                </div>
+                <div class="text-[11px] text-gray-500 mt-0.5">${JSON.stringify(data).slice(0, 120)}</div>
+            `;
+            container.prepend(el);
+            
+            // Limit to 50 events
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        function clearEvents() {
+            document.getElementById('events-list').innerHTML = 
+                '<div class="text-xs text-gray-600 py-6 text-center">No events yet</div>';
+        }
+        
+        // Initial load
+        connectWS();
+        refreshWorkflows();
+        setInterval(refreshWorkflows, 5000);
+        
+        // Also poll REST API as fallback
+        async function pollState() {
+            try {
+                const res = await fetch('/api/state');
+                const data = await res.json();
+                renderState(data);
+            } catch (e) {}
+        }
+        setInterval(pollState, 3000);
+    </script>
+</body>
+</html>
