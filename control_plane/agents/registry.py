@@ -84,6 +84,10 @@ class AgentRegistry:
         agent_ids = self._capability_index.get(capability, [])
         return [self._agents[aid] for aid in agent_ids if aid in self._agents]
 
+    def list_capabilities(self) -> List[str]:
+        """List all capabilities registered across agents."""
+        return sorted(self._capability_index.keys())
+
     def find_available_by_capability(self, capability: str) -> List[Agent]:
         """Find idle agents that have a specific capability."""
         agents = self.find_by_capability(capability)

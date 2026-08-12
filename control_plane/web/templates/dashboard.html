@@ -105,10 +105,13 @@
                     <h2 class="text-sm font-semibold text-white">Tasks</h2>
                     <div class="flex gap-2">
                         <input id="task-name" type="text" placeholder="Task name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
-                        <input id="task-capability" type="text" placeholder="Capability" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
+                        <select id="task-capability" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
+                            <option value="">Select capability...</option>
+                        </select>
                         <button onclick="createTask()" class="px-3 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors">Submit</button>
                     </div>
                 </div>
+                <div id="task-feedback" class="hidden mb-3 text-xs rounded-lg p-2"></div>
                 <div id="tasks-list" class="space-y-2 max-h-96 overflow-y-auto scrollbar pr-1">
                     <div class="text-xs text-gray-600 py-8 text-center">Loading tasks...</div>
                 </div>
@@ -211,6 +214,7 @@
             
             renderAgents(state.agents || []);
             renderTasks(state.tasks || []);
+            refreshCapabilities(state.agents || []);
         }
         
         // Render agents
@@ -274,10 +278,14 @@
             const name = document.getElementById('task-name').value;
             const capability = document.getElementById('task-capability').value;
             if (!name) {
-                alert('Please enter a task name');
+                showTaskFeedback('Please enter a task name', 'error');
                 return;
             }
-            
+            if (!capability) {
+                showTaskFeedback('Please select a capability', 'error');
+                return;
+            }
+
             try {
                 const res = await fetch('/api/tasks', {
                     method: 'POST',
@@ -285,7 +293,7 @@
                     body: JSON.stringify({
                         name: name,
                         description: 'Submitted from dashboard',
-                        required_capability: capability || 'research',
+                        required_capability: capability,
                         payload: {},
                         priority: 5
                     })
@@ -293,15 +301,48 @@
                 const data = await res.json();
                 if (data.task_id) {
                     document.getElementById('task-name').value = '';
-                    document.getElementById('task-capability').value = '';
-                    addEvent('task.submitted', {task_name: name});
+                    showTaskFeedback('Task submitted to agent(s) with capability "' + capability + '"', 'success');
+                    addEvent('task.submitted', {task_name: name, capability: capability});
                 } else {
-                    alert('Error: ' + JSON.stringify(data));
+                    showTaskFeedback('Error: ' + JSON.stringify(data), 'error');
                 }
             } catch (e) {
                 console.error('Error creating task:', e);
-                alert('Failed to create task');
+                showTaskFeedback('Failed to create task', 'error');
             }
+        }
+
+        // Show inline feedback banner
+        function showTaskFeedback(message, type) {
+            const el = document.getElementById('task-feedback');
+            el.classList.remove('hidden');
+            el.className = 'mb-3 text-xs rounded-lg p-2 ' +
+                (type === 'error'
+                    ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
+                    : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
+            el.textContent = message;
+            // Auto-hide success after 4s
+            if (type === 'success') {
+                setTimeout(() => el.classList.add('hidden'), 4000);
+            }
+        }
+
+        // Populate capability dropdown from live agents
+        function refreshCapabilities(agents) {
+            const select = document.getElementById('task-capability');
+            const current = select.value;
+            const caps = new Set();
+            (agents || []).forEach(a => (a.capabilities || []).forEach(c => caps.add(c)));
+            const sorted = Array.from(caps).sort();
+            if (!sorted.length) {
+                select.innerHTML = '<option value="">No agents registered</option>';
+                return;
+            }
+            let html = '<option value="">Select capability...</option>';
+            sorted.forEach(c => {
+                html += `<option value="${c}" ${c === current ? 'selected' : ''}>${c}</option>`;
+            });
+            select.innerHTML = html;
         }
         
         // Load workflows

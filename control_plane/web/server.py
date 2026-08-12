@@ -399,6 +399,14 @@ async def get_metrics():
     return JSONResponse(dashboard_state["metrics"])
 
 
+@app.get("/api/capabilities")
+async def get_capabilities():
+    """Get all capabilities available across registered agents."""
+    if not control_plane:
+        return JSONResponse({"capabilities": []})
+    return JSONResponse({"capabilities": control_plane.registry.list_capabilities()})
+
+
 # WebSocket
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

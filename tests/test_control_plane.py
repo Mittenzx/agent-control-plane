@@ -400,7 +400,41 @@ class TestControlPlane:
         
         result_task = cp.get_task(task_id)
         assert result_task.status == TaskStatus.COMPLETED
-        
+
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_submit_task_no_capability_agent_fails_fast(self):
+        """A task with a capability no agent has should fail fast, not hang."""
+        config = ControlPlaneConfig(name="test-cp")
+        cp = ControlPlane(config)
+
+        await cp.start()
+
+        # Register a mock agent with only 'test_cap'
+        from control_plane.core.interfaces import AgentCapability
+
+        mock_agent = MockAgent("test-agent", "Test", [
+            AgentCapability(name="test_cap", description="Test")
+        ])
+        cp.registry.register(mock_agent)
+        await cp.lifecycle.initialize_agent(mock_agent)
+
+        # Submit a task requiring a capability no agent provides
+        task = Task(
+            name="Impossible Task",
+            required_capability="nonexistent_capability"
+        )
+
+        task_id = cp.submit_task(task)
+        # Give scheduler time to attempt (and fail) the task
+        await asyncio.sleep(1.0)
+
+        result_task = cp.get_task(task_id)
+        assert result_task.status == TaskStatus.FAILED
+        assert result_task.error is not None
+        assert "nonexistent_capability" in result_task.error
+
         await cp.stop()
 
 
