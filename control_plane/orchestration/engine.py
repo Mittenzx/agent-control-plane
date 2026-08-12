@@ -99,9 +99,7 @@ class TaskScheduler:
                 agent = await self._find_best_agent(task)
                 if not agent:
                     # Distinguish "no agent has this capability" from "all busy"
-                    capability_agents = self.registry.find_by_capability(
-                        task.required_capability
-                    )
+                    capability_agents = self.registry.find_by_capability(task.required_capability)
                     if not capability_agents:
                         # No agent can ever handle this task - fail fast
                         task.status = TaskStatus.FAILED
@@ -118,9 +116,7 @@ class TaskScheduler:
 
                     # Agents have the capability but are all busy - re-queue
                     task.priority -= 1
-                    self._queue.put_nowait(
-                        (-task.priority, task.created_at, task.id, task)
-                    )
+                    self._queue.put_nowait((-task.priority, task.created_at, task.id, task))
                     await asyncio.sleep(0.5)
                     continue
 
