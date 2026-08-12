@@ -1,6 +1,7 @@
 """
 Plugin system for extensibility.
 """
+
 from .manager import (
     PluginManager,
     PluginInfo,
@@ -9,11 +10,16 @@ from .manager import (
     ExtensionPoint,
     AgentExtensionPoint,
     SchedulerExtensionPoint,
-    MessengerExtensionPoint
+    MessengerExtensionPoint,
 )
 
 __all__ = [
-    "PluginManager", "PluginInfo", "CapabilityRegistry", 
-    "AgentFactory", "ExtensionPoint",
-    "AgentExtensionPoint", "SchedulerExtensionPoint", "MessengerExtensionPoint"
+    "PluginManager",
+    "PluginInfo",
+    "CapabilityRegistry",
+    "AgentFactory",
+    "ExtensionPoint",
+    "AgentExtensionPoint",
+    "SchedulerExtensionPoint",
+    "MessengerExtensionPoint",
 ]

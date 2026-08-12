@@ -1,48 +1,54 @@
 """
 FastAPI Web Server for Agent Control Plane Dashboard.
 """
+
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Optional, Set
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from ..core.control_plane import ControlPlane
-from ..core.interfaces import Task, TaskStatus, Agent, AgentInfo, AgentStatus, AgentCapability, Message, MessageType
-from ..config.manager import ControlPlaneConfig, DEFAULT_CONFIG
+from ..core.interfaces import (
+    Task,
+    TaskStatus,
+    AgentStatus,
+)
+from ..config.manager import DEFAULT_CONFIG
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
-    
+
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
-    
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         async with self._lock:
             self.active_connections.add(websocket)
         logger.info(f"WebSocket connected. Total: {len(self.active_connections)}")
-    
+
     async def disconnect(self, websocket: WebSocket):
         async with self._lock:
             self.active_connections.discard(websocket)
         logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
-    
+
     async def broadcast(self, event: str, data: Dict[str, Any]):
         """Broadcast event to all connected clients."""
-        message = json.dumps({"event": event, "data": data, "timestamp": datetime.utcnow().isoformat()})
+        message = json.dumps(
+            {"event": event, "data": data, "timestamp": datetime.utcnow().isoformat()}
+        )
         async with self._lock:
             disconnected = set()
             for connection in self.active_connections:
@@ -50,7 +56,7 @@ class ConnectionManager:
                     await connection.send_text(message)
                 except Exception:
                     disconnected.add(connection)
-            
+
             for conn in disconnected:
                 self.active_connections.discard(conn)
 
@@ -69,7 +75,7 @@ dashboard_state = {
         "failed_tasks": 0,
         "active_agents": 0,
         "total_agents": 0,
-    }
+    },
 }
 
 
@@ -79,9 +85,11 @@ def serialize_agent(info) -> Dict[str, Any]:
         "id": info.id,
         "name": info.name,
         "type": info.type,
-        "status": info.status.value if hasattr(info.status, 'value') else str(info.status),
-        "capabilities": [c.name for c in info.capabilities] if hasattr(info, 'capabilities') else [],
-        "metadata": getattr(info, 'metadata', {}),
+        "status": info.status.value if hasattr(info.status, "value") else str(info.status),
+        "capabilities": [c.name for c in info.capabilities]
+        if hasattr(info, "capabilities")
+        else [],
+        "metadata": getattr(info, "metadata", {}),
     }
 
 
@@ -91,16 +99,22 @@ def serialize_task(task: Task) -> Dict[str, Any]:
         "id": task.id,
         "name": task.name,
         "description": task.description,
-        "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+        "status": task.status.value if hasattr(task.status, "value") else str(task.status),
         "required_capability": task.required_capability,
         "priority": task.priority,
         "payload": task.payload,
         "result": task.result,
         "error": task.error,
-        "dependencies": list(task.dependencies) if hasattr(task, 'dependencies') else [],
-        "created_at": task.created_at.isoformat() if hasattr(task, 'created_at') and task.created_at else None,
-        "started_at": task.started_at.isoformat() if hasattr(task, 'started_at') and task.started_at else None,
-        "completed_at": task.completed_at.isoformat() if hasattr(task, 'completed_at') and task.completed_at else None,
+        "dependencies": list(task.dependencies) if hasattr(task, "dependencies") else [],
+        "created_at": task.created_at.isoformat()
+        if hasattr(task, "created_at") and task.created_at
+        else None,
+        "started_at": task.started_at.isoformat()
+        if hasattr(task, "started_at") and task.started_at
+        else None,
+        "completed_at": task.completed_at.isoformat()
+        if hasattr(task, "completed_at") and task.completed_at
+        else None,
     }
 
 
@@ -109,37 +123,43 @@ async def update_dashboard_state():
     global dashboard_state
     if not control_plane:
         return
-    
+
     try:
         # Get agents
         agents = control_plane.list_agents()
         dashboard_state["agents"] = [serialize_agent(a) for a in agents]
-        
+
         # Get tasks
         tasks = list(control_plane._tasks.values())
         dashboard_state["tasks"] = [serialize_task(t) for t in tasks]
-        
+
         # Get workflows
         workflows = control_plane.list_workflows()
         dashboard_state["workflows"] = [
             {
                 "id": wf.id,
                 "name": wf.name,
-                "status": wf.status.value if hasattr(wf.status, 'value') else str(wf.status),
+                "status": wf.status.value if hasattr(wf.status, "value") else str(wf.status),
                 "tasks": [serialize_task(t) for t in wf.tasks],
             }
             for wf in workflows
         ]
-        
+
         # Update metrics
         dashboard_state["metrics"] = {
             "total_tasks": len(tasks),
             "completed_tasks": len([t for t in tasks if t.status == TaskStatus.COMPLETED]),
             "failed_tasks": len([t for t in tasks if t.status == TaskStatus.FAILED]),
-            "active_agents": len([a for a in agents if a.status in (AgentStatus.RUNNING, AgentStatus.INITIALIZING, AgentStatus.IDLE)]),
+            "active_agents": len(
+                [
+                    a
+                    for a in agents
+                    if a.status in (AgentStatus.RUNNING, AgentStatus.INITIALIZING, AgentStatus.IDLE)
+                ]
+            ),
             "total_agents": len(agents),
         }
-        
+
         # Broadcast update
         await connection_manager.broadcast("state_update", dashboard_state)
     except Exception as e:
@@ -157,20 +177,25 @@ async def state_updater():
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global control_plane
-    
+
     # Start control plane
     config = DEFAULT_CONFIG
     config.log_level = "INFO"
     control_plane = ControlPlane(config)
     await control_plane.start()
-    
+
     # Register example agents so the dashboard shows live data
     try:
         from examples.llm_agents import (
-            create_research_agent, create_coder_agent, create_planner_agent
+            create_research_agent,
+            create_coder_agent,
+            create_planner_agent,
         )
+
         for factory in (create_research_agent, create_coder_agent, create_planner_agent):
-            agent = factory(factory.__name__.replace("create_", "").replace("_agent", ""), control_plane)
+            agent = factory(
+                factory.__name__.replace("create_", "").replace("_agent", ""), control_plane
+            )
             control_plane.registry.register(agent)
             await control_plane.lifecycle.initialize_agent(agent)
             for cap in agent.capabilities:
@@ -180,21 +205,21 @@ async def lifespan(app: FastAPI):
         logger.info("Registered example agents")
     except Exception as e:
         logger.warning(f"Could not register example agents: {e}")
-    
+
     # Start background state updater
     updater_task = asyncio.create_task(state_updater())
-    
+
     logger.info("Dashboard server started")
-    
+
     yield
-    
+
     # Cleanup
     updater_task.cancel()
     try:
         await updater_task
     except asyncio.CancelledError:
         pass
-    
+
     await control_plane.stop()
     logger.info("Dashboard server stopped")
 
@@ -215,7 +240,6 @@ app.add_middleware(
 )
 
 # Templates
-import os
 _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=_TEMPLATE_DIR)
 
@@ -291,7 +315,7 @@ async def create_task(task_data: Dict[str, Any]):
     """Create a new task."""
     if not control_plane:
         return JSONResponse({"error": "Control plane not running"}, status_code=503)
-    
+
     task = Task(
         name=task_data.get("name", "Untitled Task"),
         description=task_data.get("description", ""),
@@ -300,7 +324,7 @@ async def create_task(task_data: Dict[str, Any]):
         priority=task_data.get("priority", 5),
         dependencies=task_data.get("dependencies", []),
     )
-    
+
     task_id = control_plane.submit_task(task)
     await update_dashboard_state()
     return JSONResponse({"task_id": task_id, "task": serialize_task(task)})
@@ -325,15 +349,19 @@ async def get_workflows():
     if not control_plane:
         return JSONResponse({"workflows": []})
     workflows = control_plane.list_workflows()
-    return JSONResponse({"workflows": [
+    return JSONResponse(
         {
-            "id": wf.id,
-            "name": wf.name,
-            "status": wf.status.value if hasattr(wf.status, 'value') else str(wf.status),
-            "tasks": [serialize_task(t) for t in wf.tasks],
+            "workflows": [
+                {
+                    "id": wf.id,
+                    "name": wf.name,
+                    "status": wf.status.value if hasattr(wf.status, "value") else str(wf.status),
+                    "tasks": [serialize_task(t) for t in wf.tasks],
+                }
+                for wf in workflows
+            ]
         }
-        for wf in workflows
-    ]})
+    )
 
 
 @app.post("/api/workflows")
@@ -341,7 +369,7 @@ async def create_workflow(workflow_data: Dict[str, Any]):
     """Create a new workflow."""
     if not control_plane:
         return JSONResponse({"error": "Control plane not running"}, status_code=503)
-    
+
     tasks = []
     for t_data in workflow_data.get("tasks", []):
         task = Task(
@@ -353,7 +381,7 @@ async def create_workflow(workflow_data: Dict[str, Any]):
             dependencies=t_data.get("dependencies", []),
         )
         tasks.append(task)
-    
+
     workflow = control_plane.submit_workflow(workflow_data.get("name", "Untitled Workflow"), tasks)
     await update_dashboard_state()
     return JSONResponse({"workflow_id": workflow.id, "name": workflow.name})
@@ -362,7 +390,7 @@ async def create_workflow(workflow_data: Dict[str, Any]):
 @app.get("/api/events")
 async def get_events(limit: int = 100):
     """Get recent events."""
-    return JSONResponse({"events": dashboard_state["events"][-limit:]})
+    return JSONResponse({"events": dashboard_state["events"][-limit:]})  # type: ignore[index]
 
 
 @app.get("/api/metrics")
@@ -378,12 +406,16 @@ async def websocket_endpoint(websocket: WebSocket):
     await connection_manager.connect(websocket)
     try:
         # Send initial state
-        await websocket.send_text(json.dumps({
-            "event": "initial_state",
-            "data": dashboard_state,
-            "timestamp": datetime.utcnow().isoformat()
-        }))
-        
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "event": "initial_state",
+                    "data": dashboard_state,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+        )
+
         while True:
             data = await websocket.receive_text()
             # Handle client messages if needed
@@ -403,6 +435,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def run_server(host: str = "0.0.0.0", port: int = 8080):
     """Run the dashboard server."""
     import uvicorn
+
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

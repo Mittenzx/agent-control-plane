@@ -1,6 +1,7 @@
 """
 Core interfaces and base classes for the Agent Control Plane.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -11,6 +12,7 @@ import uuid
 
 class AgentStatus(Enum):
     """Lifecycle states of an agent."""
+
     INITIALIZING = "initializing"
     IDLE = "idle"
     RUNNING = "running"
@@ -22,6 +24,7 @@ class AgentStatus(Enum):
 
 class TaskStatus(Enum):
     """Lifecycle states of a task."""
+
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"
@@ -33,6 +36,7 @@ class TaskStatus(Enum):
 
 class MessageType(Enum):
     """Types of messages in the system."""
+
     TASK_REQUEST = "task_request"
     TASK_RESPONSE = "task_response"
     TASK_PROGRESS = "task_progress"
@@ -45,6 +49,7 @@ class MessageType(Enum):
 @dataclass
 class AgentCapability:
     """Describes a capability an agent provides."""
+
     name: str
     description: str
     input_schema: Dict[str, Any] = field(default_factory=dict)
@@ -55,6 +60,7 @@ class AgentCapability:
 @dataclass
 class AgentInfo:
     """Metadata about an agent."""
+
     id: str
     name: str
     type: str
@@ -68,6 +74,7 @@ class AgentInfo:
 @dataclass
 class Task:
     """A unit of work that can be executed by an agent."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
     description: str = ""
@@ -90,6 +97,7 @@ class Task:
 @dataclass
 class Message:
     """Inter-agent communication message."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     type: MessageType = MessageType.CUSTOM
     sender_id: str = ""
@@ -102,59 +110,59 @@ class Message:
 
 class Agent(ABC):
     """Base class for all agents in the control plane."""
-    
+
     def __init__(self, agent_info: AgentInfo):
         self.info = agent_info
         self._running = False
         self._message_handlers: Dict[MessageType, Callable] = {}
-    
+
     @property
     def id(self) -> str:
         return self.info.id
-    
+
     @property
     def name(self) -> str:
         return self.info.name
-    
+
     @property
     def capabilities(self) -> List[AgentCapability]:
         return self.info.capabilities
-    
+
     @property
     def status(self) -> AgentStatus:
         return self.info.status
-    
+
     @status.setter
     def status(self, value: AgentStatus):
         self.info.status = value
         self.info.updated_at = datetime.utcnow()
-    
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the agent (load models, connect to services, etc.)."""
         pass
-    
+
     @abstractmethod
     async def execute_task(self, task: Task) -> Dict[str, Any]:
         """Execute a task and return the result."""
         pass
-    
+
     @abstractmethod
     async def shutdown(self) -> None:
         """Gracefully shut down the agent."""
         pass
-    
+
     def register_message_handler(self, msg_type: MessageType, handler: Callable):
         """Register a handler for a specific message type."""
         self._message_handlers[msg_type] = handler
-    
+
     async def handle_message(self, message: Message) -> Optional[Message]:
         """Handle an incoming message."""
         handler = self._message_handlers.get(message.type)
         if handler:
             return await handler(message)
         return None
-    
+
     def can_handle_task(self, task: Task) -> bool:
         """Check if this agent can handle the given task."""
         return any(cap.name == task.required_capability for cap in self.capabilities)
@@ -162,24 +170,24 @@ class Agent(ABC):
 
 class AgentPlugin(ABC):
     """Base class for agent plugins that extend functionality."""
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
         """Unique plugin name."""
         pass
-    
+
     @property
     @abstractmethod
     def version(self) -> str:
         """Plugin version."""
         pass
-    
+
     @abstractmethod
     async def on_load(self, control_plane: "ControlPlane") -> None:
         """Called when plugin is loaded."""
         pass
-    
+
     @abstractmethod
     async def on_unload(self) -> None:
         """Called when plugin is unloaded."""
@@ -188,4 +196,5 @@ class AgentPlugin(ABC):
 
 class ControlPlane:
     """Main control plane interface - implemented in core/control_plane.py"""
+
     pass  # Forward reference

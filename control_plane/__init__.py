@@ -8,6 +8,7 @@ This package provides:
 - Plugin system for extensibility
 - Configuration management
 """
+
 from .core import (
     ControlPlane,
     Agent,
@@ -28,7 +29,7 @@ from .config import (
     DEFAULT_CONFIG,
 )
 from .agents import AgentRegistry, AgentLifecycleManager
-from .orchestration import OrchestrationEngine, TaskScheduler, WorkflowEngine, Workflow
+from .orchestration import OrchestrationEngine, TaskScheduler, WorkflowEngine
 from .messaging import MessageBus, RequestResponseBus, EventBus, SystemEvents
 from .plugins import (
     PluginManager,

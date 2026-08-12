@@ -1,6 +1,7 @@
 """
 Main entry point for the Agent Control Plane.
 """
+
 import asyncio
 import logging
 import sys
@@ -15,12 +16,11 @@ from control_plane import ControlPlane, ControlPlaneConfig, DEFAULT_CONFIG
 async def main():
     """Run the control plane."""
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    
+
     logger = logging.getLogger(__name__)
-    
+
     # Load config from file if exists, otherwise use default
     config_path = Path(__file__).parent / "config.json"
     if config_path.exists():
@@ -29,18 +29,18 @@ async def main():
     else:
         config = DEFAULT_CONFIG
         logger.info("Using default configuration")
-    
+
     # Create and start control plane
     cp = ControlPlane(config)
-    
+
     try:
         await cp.start()
         logger.info("Control plane started. Press Ctrl+C to stop.")
-        
+
         # Keep running
         while cp.running:
             await asyncio.sleep(1)
-            
+
     except KeyboardInterrupt:
         logger.info("Shutdown requested")
     finally:
