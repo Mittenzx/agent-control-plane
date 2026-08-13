@@ -55,6 +55,10 @@ class ControlPlane(ControlPlaneInterface):
         self.capability_registry = CapabilityRegistry()
         self.agent_factory = AgentFactory(self)
 
+        # Register the Hermes agent type so configs can use
+        # {"type": "hermes_agent", ...} to run agents on real Hermes processes
+        self._register_hermes_agent_type()
+
         # State
         self._running = False
         self._started_at: Optional[datetime] = None
@@ -65,6 +69,23 @@ class ControlPlane(ControlPlaneInterface):
         self._setup_event_handlers()
 
         logger.info(f"ControlPlane initialized: {self.config.name}")
+
+    def _register_hermes_agent_type(self) -> None:
+        """Register the hermes_agent type with the agent factory."""
+        from ..agents.hermes_agent import HermesAgent
+
+        def _builder(agent_info, config, cp):
+            config = config or {}
+            return HermesAgent(
+                agent_info,
+                hermes_command=config.get("hermes_command", "hermes"),
+                model=config.get("model"),
+                provider=config.get("provider"),
+                timeout_seconds=config.get("timeout_seconds", 300.0),
+                cwd=config.get("cwd"),
+            )
+
+        self.agent_factory.register_builder("hermes_agent", _builder)
 
     def _setup_event_handlers(self) -> None:
         """Set up internal event handlers."""

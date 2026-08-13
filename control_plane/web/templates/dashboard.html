@@ -118,6 +118,36 @@
             </div>
         </div>
 
+        <!-- Hermes Panel -->
+        <div class="card p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-white">🤖 Hermes Agents <span class="text-gray-500 font-normal">(run on real Hermes)</span></h2>
+                <div class="flex gap-2">
+                    <input id="hermes-name" type="text" placeholder="Agent name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
+                    <input id="hermes-caps" type="text" placeholder="caps (comma sep)" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 w-44">
+                    <button onclick="spawnHermesAgent()" class="px-3 py-1 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors">Spawn Agent</button>
+                </div>
+            </div>
+            <div id="hermes-feedback" class="hidden mb-3 text-xs rounded-lg p-2"></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <div class="text-xs text-gray-500 mb-2 font-medium">Spawned Hermes Agents</div>
+                    <div id="hermes-agents-list" class="space-y-2 max-h-48 overflow-y-auto scrollbar pr-1">
+                        <div class="text-xs text-gray-600 py-4 text-center">Spawn agents to run them on Hermes</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-xs text-gray-500 font-medium">Recent Hermes Sessions</div>
+                        <button onclick="refreshHermesSessions()" class="text-xs text-gray-400 hover:text-cyan-400 transition-colors">Refresh</button>
+                    </div>
+                    <div id="hermes-sessions" class="space-y-1.5 max-h-48 overflow-y-auto scrollbar pr-1 font-mono text-[11px]">
+                        <div class="text-xs text-gray-600 py-4 text-center">Loading sessions...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Bottom Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- Workflows Panel -->
@@ -215,6 +245,7 @@
             renderAgents(state.agents || []);
             renderTasks(state.tasks || []);
             refreshCapabilities(state.agents || []);
+            renderHermesAgents(state.agents || []);
         }
         
         // Render agents
@@ -415,11 +446,94 @@
             document.getElementById('events-list').innerHTML = 
                 '<div class="text-xs text-gray-600 py-6 text-center">No events yet</div>';
         }
-        
-        // Initial load
+
+        // ===== Hermes agent management =====
+        async function spawnHermesAgent() {
+            const name = document.getElementById('hermes-name').value;
+            const capsRaw = document.getElementById('hermes-caps').value;
+            if (!name) {
+                showHermesFeedback('Enter an agent name', 'error');
+                return;
+            }
+            const caps = capsRaw ? capsRaw.split(',').map(c => c.trim()).filter(Boolean) : ['reasoning'];
+            try {
+                const res = await fetch('/api/hermes/agents', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, capabilities: caps})
+                });
+                const data = await res.json();
+                if (data.agent_id) {
+                    document.getElementById('hermes-name').value = '';
+                    showHermesFeedback('Spawned Hermes agent "' + name + '" with caps: ' + caps.join(', '), 'success');
+                    addEvent('agent.registered', {agent_name: name, backend: 'hermes'});
+                } else {
+                    showHermesFeedback('Error: ' + JSON.stringify(data), 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showHermesFeedback('Failed to spawn agent', 'error');
+            }
+        }
+
+        function showHermesFeedback(message, type) {
+            const el = document.getElementById('hermes-feedback');
+            el.classList.remove('hidden');
+            el.className = 'mb-3 text-xs rounded-lg p-2 ' +
+                (type === 'error'
+                    ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
+                    : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
+            el.textContent = message;
+            if (type === 'success') setTimeout(() => el.classList.add('hidden'), 5000);
+        }
+
+        async function refreshHermesSessions() {
+            try {
+                const res = await fetch('/api/hermes/sessions?limit=15');
+                const data = await res.json();
+                renderHermesSessions(data.sessions || '');
+            } catch (e) { console.error(e); }
+        }
+
+        function renderHermesSessions(text) {
+            const el = document.getElementById('hermes-sessions');
+            if (!text.trim()) {
+                el.innerHTML = '<div class="text-xs text-gray-600 py-4 text-center">No Hermes sessions yet</div>';
+                return;
+            }
+            // hermes sessions list is plain text; show last 15 lines
+            const lines = text.split('\n').filter(l => l.trim()).slice(-15);
+            el.innerHTML = lines.map(l =>
+                `<div class="border border-gray-800 rounded px-2 py-1 bg-gray-900 text-gray-400">${l.replace(/</g,'&lt;')}</div>`
+            ).join('');
+        }
+
+        function renderHermesAgents(agents) {
+            const el = document.getElementById('hermes-agents-list');
+            const hermes = (agents || []).filter(a => a.type === 'hermes_agent');
+            if (!hermes.length) {
+                el.innerHTML = '<div class="text-xs text-gray-600 py-4 text-center">Spawn agents to run them on Hermes</div>';
+                return;
+            }
+            el.innerHTML = hermes.map(a => `
+                <div class="border border-violet-900/60 rounded p-2 bg-gray-900">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-white font-medium">${a.name}</span>
+                        ${statusBadge(a.status)}
+                    </div>
+                    <div class="flex gap-1 mt-1 flex-wrap">
+                        ${(a.capabilities||[]).map(c => `<span class="px-1.5 py-0.5 text-[10px] bg-violet-950/40 text-violet-300 rounded">${c}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Initial load additions
         connectWS();
         refreshWorkflows();
+        refreshHermesSessions();
         setInterval(refreshWorkflows, 5000);
+        setInterval(refreshHermesSessions, 10000);
         
         // Also poll REST API as fallback
         async function pollState() {

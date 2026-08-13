@@ -1,22 +1,24 @@
 # Agent Control Plane
 
-A modular, customizable control plane for AI agents with support for multi-agent systems, workflow orchestration, and plugin extensibility.
+A modular, customizable control plane for AI agents with support for multi-agent systems, workflow orchestration, and plugin extensibility. The execution core is **Hermes Agent** — control-plane "agents" are real Hermes processes with full tool access, persistent memory, and skills.
 
 ## Features
 
+- **Runs on Hermes** — agents are spawned `hermes` processes (headless, quiet mode); tasks execute through Hermes with full tools, memory, and skills
 - **Agent Registry & Lifecycle Management** - Register, initialize, and manage agent lifecycles
 - **Task Orchestration** - Submit tasks, create workflows with dependencies, priority-based scheduling
 - **Inter-Agent Messaging** - Request/response, pub/sub, event-driven communication
 - **Plugin System** - Extend with custom agents, schedulers, messaging transports
 - **Configuration Management** - JSON/YAML config with hot-reloading and env var overrides
 - **Multi-Agent Workflows** - Coordinate complex multi-step processes across agents
+- **Human-view dashboard** - spawn Hermes agents, watch them work, and inspect live Hermes sessions
 
 ## Architecture
 
 ```
 control_plane/
 ├── core/              # Core interfaces and main ControlPlane class
-├── agents/            # Agent registry and lifecycle management
+├── agents/            # Agent registry, lifecycle, and HermesAgent adapter
 ├── orchestration/     # Task scheduling and workflow engine
 ├── messaging/         # Message bus, request/response, event bus
 ├── plugins/           # Plugin manager, capability registry, agent factory
@@ -24,6 +26,44 @@ control_plane/
 ├── web/               # Real-time web dashboard (FastAPI + WebSockets)
 └── examples/          # Example agents and usage
 ```
+
+## Hermes as the Execution Core
+
+An agent defined with `"type": "hermes_agent"` is backed by a real Hermes process. When the control plane dispatches a task to it, the task payload is turned into a prompt and run through `hermes chat -q <prompt> -Q` (headless, quiet mode). Each run captures:
+
+- **Hermes `session_id`** (parsed from stderr) — enables stateful resumption via `--resume`
+- **The model's final output** (stdout)
+- **Exit code** and completion timestamp
+
+Because sessions persist in Hermes's SQLite store, a Hermes agent you resume later *remembers* context and long-term memory across tasks.
+
+### Spawning Hermes agents programmatically
+
+```python
+from control_plane.core.control_plane import ControlPlane
+from control_plane.config.manager import AgentConfig, DEFAULT_CONFIG
+import asyncio
+
+async def main():
+    cp = ControlPlane(DEFAULT_CONFIG)
+    await cp.start()
+    # Hermes agent that can handle 'research' and 'summarize'
+    agent = await cp.create_and_start_agent(AgentConfig(
+        name="researcher",
+        type="hermes_agent",          # <-- runs on real Hermes
+        auto_start=True,
+        capabilities=[
+            {"name": "research", "description": "Web research"},
+            {"name": "summarize", "description": "Summarization"},
+        ],
+        config={"model": None},        # optional: {"model": "openai/gpt-4o", "provider": "openrouter"}
+    ))
+    await cp.stop()
+
+asyncio.run(main())
+```
+
+You can also spawn a Hermes agent from the dashboard: enter a name + comma-separated capabilities and click **Spawn Agent**. Spawned agents appear in the Agents panel with a `hermes_agent` type and run tasks on Hermes.
 
 ## Web Dashboard
 

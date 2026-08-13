@@ -407,6 +407,79 @@ async def get_capabilities():
     return JSONResponse({"capabilities": control_plane.registry.list_capabilities()})
 
 
+@app.post("/api/hermes/agents")
+async def spawn_hermes_agent(agent_data: Dict[str, Any]):
+    """Spawn a new Hermes-backed agent."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+
+    from ..core.interfaces import AgentCapability, AgentInfo
+
+    name = agent_data.get("name", "hermes-agent")
+    caps = agent_data.get("capabilities", ["reasoning"])
+    agent_id = agent_data.get("id")
+
+    caps_list = [AgentCapability(name=c, description=f"Hermes capability: {c}") for c in caps]
+    info = AgentInfo(
+        id=agent_id or f"hermes-{name}-{len(control_plane.list_agents())}",
+        name=name,
+        type="hermes_agent",
+        capabilities=caps_list,
+        metadata={"backend": "hermes"},
+    )
+
+    agent = await control_plane.agent_factory.create_agent(
+        "hermes_agent", info, agent_data.get("config", {})
+    )
+    control_plane.registry.register(agent)
+    await control_plane.lifecycle.initialize_agent(agent)
+    for cap in caps_list:
+        control_plane.capability_registry.register_capability(cap, agent.id)
+    control_plane.message_bus.register_agent_queue(agent.id, asyncio.Queue())
+    control_plane.message_bus.subscribe(agent.id, agent.handle_message)
+
+    await update_dashboard_state()
+    return JSONResponse({"agent_id": agent.id, "name": agent.name, "type": "hermes_agent"})
+
+
+@app.get("/api/hermes/sessions")
+async def list_hermes_sessions(limit: int = 20):
+    """List recent Hermes sessions from the Hermes session store."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["hermes", "sessions", "list", "--limit", str(limit)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return JSONResponse({"sessions": proc.stdout, "exit_code": proc.returncode})
+    except FileNotFoundError:
+        return JSONResponse({"sessions": "", "error": "hermes CLI not found"})
+    except Exception as e:
+        return JSONResponse({"sessions": "", "error": str(e)})
+
+
+@app.get("/api/agents/{agent_id}/session")
+async def get_agent_session(agent_id: str):
+    """Get the Hermes session ID + last output for a Hermes-backed agent."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    agent = control_plane.registry.get(agent_id)
+    if not agent:
+        return JSONResponse({"error": "Agent not found"}, status_code=404)
+    session_id = getattr(agent, "session_id", None)
+    return JSONResponse(
+        {
+            "agent_id": agent_id,
+            "name": agent.name,
+            "session_id": session_id,
+            "stdout": getattr(agent, "get_stdout", lambda: "")() or "",
+        }
+    )
+
+
 # WebSocket
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

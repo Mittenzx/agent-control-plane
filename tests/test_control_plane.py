@@ -438,5 +438,58 @@ class TestControlPlane:
         await cp.stop()
 
 
+class TestHermesAgent:
+    """Tests for the Hermes-backed agent adapter."""
+
+    def test_hermes_agent_type_registered(self):
+        """ControlPlane factory should register the hermes_agent type."""
+        cp = ControlPlane()
+        types = cp.agent_factory.list_agent_types()
+        assert "hermes_agent" in types
+
+    def test_parse_session_id(self):
+        """Session ID should be parsed from Hermes quiet-mode stderr."""
+        from control_plane.agents.hermes_agent import HermesAgent
+
+        assert HermesAgent._parse_session_id(
+            "some output\nsession_id: 20260812_123456_abc123\nmore"
+        ) == "20260812_123456_abc123"
+        assert HermesAgent._parse_session_id("no session here") is None
+
+    @pytest.mark.asyncio
+    async def test_execute_task_captures_result(self, mocker):
+        """execute_task should return the Hermes stdout + session_id."""
+        from control_plane.agents.hermes_agent import HermesAgent
+
+        info = AgentInfo(
+            id="hermes-1",
+            name="hermes-agent",
+            type="hermes_agent",
+            capabilities=[AgentCapability(name="reasoning", description="r")],
+        )
+        agent = HermesAgent(info)
+
+        # Mock the subprocess creation
+        mock_proc = Mock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"RESULT_TEXT", b"\nsession_id: 20260812_9999_abc\n")
+        )
+        mock_proc.returncode = 0
+
+        mocker.patch.object(
+            agent, "hermes_command", "hermes"
+        )
+        mocker.patch(
+            "asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)
+        )
+
+        result = await agent.execute_task(
+            Task(name="T", required_capability="reasoning")
+        )
+        assert result["output"] == "RESULT_TEXT"
+        assert result["session_id"] == "20260812_9999_abc"
+        assert result["exit_code"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
