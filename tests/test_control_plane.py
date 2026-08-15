@@ -536,5 +536,100 @@ class TestProjects:
         await cp.stop()
 
 
+class TestSubtaskDecomposition:
+    """Tests for task decomposition and subtask aggregation."""
+
+    @pytest.mark.asyncio
+    async def test_spawn_subtasks_links_parent_and_project(self):
+        """spawn_subtasks links parent_task_id and inherits project_id."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("Site", goal="Ship a site")
+        parent = Task(name="Build site", required_capability="code",
+                      project_id=p.id)
+        cp.submit_task(parent)
+        subs = cp.spawn_subtasks(parent, [
+            {"name": "Design", "required_capability": "design"},
+            {"name": "Build", "required_capability": "build"},
+        ])
+        assert len(subs) == 2
+        assert all(s.parent_task_id == parent.id for s in subs)
+        assert all(s.project_id == p.id for s in subs)
+        assert parent.metadata.get("has_subtasks") is True
+        assert len(cp._tasks) == 3
+        await cp.stop()
+
+    def test_extract_spawn_from_output_parses_json_array(self):
+        """Decompose output with a JSON array is parsed into subtask specs."""
+        cp = ControlPlane()
+        output = ('Here is my plan:\n'
+                  '[{"name": "T1", "required_capability": "c1"}, '
+                  '{"name": "T2", "required_capability": "c2"}]')
+        specs = cp._extract_spawn_from_output(output)
+        assert specs is not None
+        assert len(specs) == 2
+        assert specs[0]["name"] == "T1"
+
+    def test_extract_spawn_handles_wrapped_object(self):
+        """Decompose output with a 'spawn' object is parsed."""
+        cp = ControlPlane()
+        output = '{"spawn": [{"name": "A"}, {"name": "B"}]}'
+        specs = cp._extract_spawn_from_output(output)
+        assert specs == [{"name": "A"}, {"name": "B"}]
+
+    @pytest.mark.asyncio
+    async def test_parent_completes_when_all_subtasks_done(self):
+        """Parent task completes once every subtask is in a terminal state."""
+        cp = ControlPlane()
+        await cp.start()
+        parent = Task(name="Parent", required_capability="x")
+        cp.submit_task(parent)
+        subs = cp.spawn_subtasks(parent, [
+            {"name": "S1", "required_capability": "x"},
+            {"name": "S2", "required_capability": "x"},
+        ])
+        # Simulate both subtasks completing
+        for s in subs:
+            s.status = TaskStatus.COMPLETED
+        cp._on_task_completed(subs[0], {"ok": True})  # triggers aggregation
+        assert parent.status == TaskStatus.COMPLETED
+        assert parent.result["subtasks_completed"] == 2
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_parent_fails_when_subtask_fails(self):
+        """Parent task fails if any subtask fails."""
+        cp = ControlPlane()
+        await cp.start()
+        parent = Task(name="Parent", required_capability="x")
+        cp.submit_task(parent)
+        subs = cp.spawn_subtasks(parent, [
+            {"name": "S1", "required_capability": "x"},
+            {"name": "S2", "required_capability": "x"},
+        ])
+        subs[0].status = TaskStatus.COMPLETED
+        subs[1].status = TaskStatus.FAILED
+        cp._on_task_completed(subs[1], None)
+        assert parent.status == TaskStatus.FAILED
+        assert "1 of 2 subtasks failed" in parent.error
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_dependency_resolution_waits(self):
+        """A task with an unmet dependency stays pending."""
+        cp = ControlPlane()
+        await cp.start()
+        dep = Task(name="Dep", required_capability="x")
+        task = Task(name="Depends", required_capability="x",
+                    dependencies=[dep.id])
+        cp.submit_task(dep)
+        # Before dep completes, task store knows dep but it is PENDING
+        assert cp.orchestration.scheduler._dependencies_met(task) is False
+        # After dep completes, dependencies are met
+        dep.status = TaskStatus.COMPLETED
+        assert cp.orchestration.scheduler._dependencies_met(task) is True
+        await cp.stop()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

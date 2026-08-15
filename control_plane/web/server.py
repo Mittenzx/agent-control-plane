@@ -102,6 +102,7 @@ def serialize_task(task: Task) -> Dict[str, Any]:
         "status": task.status.value if hasattr(task.status, "value") else str(task.status),
         "required_capability": task.required_capability,
         "project_id": getattr(task, "project_id", None),
+        "parent_task_id": getattr(task, "parent_task_id", None),
         "priority": task.priority,
         "payload": task.payload,
         "result": task.result,
@@ -381,6 +382,39 @@ async def cancel_task(task_id: str):
     task.status = TaskStatus.CANCELLED
     await update_dashboard_state()
     return JSONResponse({"success": True})
+
+
+@app.post("/api/tasks/{task_id}/decompose")
+async def decompose_task(task_id: str, body: Optional[Dict[str, Any]] = None):
+    """Decompose a task into subtasks (opt-in via a planner agent)."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    task = control_plane.get_task(task_id)
+    if not task:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+    body = body or {}
+    planner_cap = body.get("planner_capability", "task_planning")
+    await control_plane.decompose_task(task, planner_capability=planner_cap)
+    await update_dashboard_state()
+    return JSONResponse({"success": True, "task_id": task_id})
+
+
+@app.get("/api/tasks/{task_id}/tree")
+async def get_task_tree(task_id: str):
+    """Return a task and its nested subtasks."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    tree = control_plane.task_tree(task_id)
+    if not tree:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    def _ser(node):
+        return {
+            "task": serialize_task(node["task"]),
+            "children": [_ser(c) for c in node["children"]],
+        }
+
+    return JSONResponse(_ser(tree))
 
 
 @app.get("/api/workflows")

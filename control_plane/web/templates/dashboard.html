@@ -477,11 +477,16 @@
         }
 
         function taskRow(task) {
+            // Indicator: indent if it's a subtask
+            const isSub = task.parent_task_id ? ' ml-4 border-l-2 border-violet-800 pl-3' : '';
             return `
-                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
+                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900${isSub}">
                     <div class="flex items-center justify-between mb-1">
-                        <span class="text-sm font-medium text-white">${task.name}</span>
-                        ${statusBadge(task.status)}
+                        <span class="text-sm font-medium text-white">${task.parent_task_id ? '<span class="text-violet-500">↳ </span>' : ''}${task.name}</span>
+                        <div class="flex items-center gap-2">
+                            ${statusBadge(task.status)}
+                            ${task.parent_task_id === null || task.parent_task_id === undefined ? `<button onclick="decomposeTask('${task.id}')" class="text-[10px] px-2 py-0.5 bg-violet-600/30 hover:bg-violet-600/50 text-violet-300 border border-violet-700 rounded transition-colors" title="Split this task into subtasks">Decompose</button>` : ''}
+                        </div>
                     </div>
                     <div class="flex items-center justify-between text-xs text-gray-500">
                         <span>Capability: <span class="text-cyan-400">${task.required_capability || 'any'}</span></span>
@@ -490,6 +495,27 @@
                     ${task.result ? `<div class="mt-2 text-xs text-gray-400 bg-gray-800 rounded p-2">Result: ${JSON.stringify(task.result).slice(0, 150)}</div>` : ''}
                     ${task.error ? `<div class="mt-2 text-xs text-rose-400 bg-rose-950/50 rounded p-2">${task.error}</div>` : ''}
                 </div>`;
+        }
+
+        // Decompose a task into subtasks
+        async function decomposeTask(taskId) {
+            try {
+                const res = await fetch('/api/tasks/' + taskId + '/decompose', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({planner_capability: 'task_planning'})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showTaskFeedback('Decomposing task — planner agent will split it into subtasks', 'success');
+                    addEvent('task.decomposed', {task_id: taskId});
+                } else {
+                    showTaskFeedback('Error: ' + JSON.stringify(data), 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showTaskFeedback('Failed to decompose task', 'error');
+            }
         }
 
         // ===== Create a task =====

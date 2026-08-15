@@ -194,7 +194,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
                 {"name": "research", "description": "Web research and information gathering"},
                 {"name": "summarize", "description": "Summarize long texts"},
             ],
-            config={"model": "gpt-4", "temperature": 0.7},
+            config={"temperature": 0.7},
         ),
         AgentConfig(
             type="hermes_agent",
@@ -203,7 +203,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
                 {"name": "code_generation", "description": "Generate code from specs"},
                 {"name": "code_review", "description": "Review code for issues"},
             ],
-            config={"model": "gpt-4", "temperature": 0.3},
+            config={"temperature": 0.3},
         ),
         AgentConfig(
             type="hermes_agent",
@@ -212,7 +212,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
                 {"name": "task_planning", "description": "Break down goals into tasks"},
                 {"name": "workflow_design", "description": "Design multi-step workflows"},
             ],
-            config={"model": "gpt-4", "temperature": 0.5},
+            config={"temperature": 0.5},
         ),
     ],
     plugins=[],

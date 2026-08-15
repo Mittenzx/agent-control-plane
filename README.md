@@ -115,6 +115,62 @@ progress = cp.project_progress(project.id)
 | GET | `/api/projects/{id}` | Project detail + its tasks |
 | POST | `/api/tasks` | Create a task (accepts `project_id`) |
 
+## Task Decomposition
+
+A task can **generate subtasks**, either automatically or by having an agent spawn them — and a parent task **completes only once all of its subtasks finish**. Shared substrate: `parent_task_id` linkage, real dependency resolution, and project inheritance.
+
+### Two ways a task produces subtasks
+
+**1. Agent-driven spawn** — a running agent returns a `spawn` list (or a JSON array) in its result/output, and the control plane creates those subtasks automatically:
+
+```python
+# A Hermes/planner agent produces a result like this:
+result = {
+    "output": '[{"name": "Write endpoints", "required_capability": "code_generation"}, {"name": "Tests", "required_capability": "code_review"}]'
+}
+# When that task completes, the control plane spawns the subtasks.
+```
+
+**2. Explicit auto-decompose** — ask the control plane to split a task via a planner agent:
+
+```python
+parent = Task(name="Auth system", required_capability="code_generation")
+cp.submit_task(parent)
+# Ask a planner agent (capability: task_planning) to split it:
+await cp.decompose_task(parent, planner_capability="task_planning")
+```
+
+The planner's structured output becomes child tasks. Or spawn subtasks directly with a known plan:
+
+```python
+subs = cp.spawn_subtasks(parent, [
+    {"name": "Design", "required_capability": "design"},
+    {"name": "Build", "required_capability": "build"},
+])
+```
+
+### Aggregation & real dependencies
+
+- Subtasks inherit the parent's `project_id`, so the project's progress reflects them.
+- A **parent completes only when every subtask is terminal** (all completed, or if any failed the parent is marked failed with a summary). This is handled by the task-completion callback.
+- `_dependencies_met` now uses a live task store: a task whose `dependencies` aren't all `COMPLETED` stays pending (waits) instead of running prematurely.
+
+### Inspect the tree
+
+```python
+tree = cp.task_tree(parent.id)
+# {"task": <Task>, "children": [{"task": <Task>, "children": [...]}]}
+```
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/tasks/{id}/decompose` | Decompose a task via a planner agent |
+| GET | `/api/tasks/{id}/tree` | Return the task and its nested subtasks |
+
+In the dashboard, every standalone task has a **Decompose** button, and subtasks render nested (indented, with a `↳` marker) under their parent.
+
 ## Web Dashboard
 
 The control plane ships with a real-time monitoring dashboard built on **FastAPI + WebSockets + HTMX/Alpine.js**. It gives you live visibility into agents, tasks, workflows, and system metrics — no build step required.

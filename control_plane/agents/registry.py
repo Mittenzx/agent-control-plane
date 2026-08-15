@@ -116,6 +116,13 @@ class AgentLifecycleManager:
         self._initializing: Dict[str, asyncio.Task] = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}  # task_id -> task
         self._shutting_down: Dict[str, asyncio.Task] = {}
+        self._task_completed_callbacks: List[Callable[[Task, Optional[Dict[str, Any]]], None]] = []
+
+    def add_task_completed_callback(
+        self, callback: Callable[[Task, Optional[Dict[str, Any]]], None]
+    ) -> None:
+        """Register a callback fired when a task completes."""
+        self._task_completed_callbacks.append(callback)
 
     async def initialize_agent(self, agent: Agent) -> None:
         """Initialize an agent."""
@@ -174,18 +181,21 @@ class AgentLifecycleManager:
                 task.completed_at = datetime.utcnow()
                 agent.status = AgentStatus.IDLE
                 logger.info(f"Task {task.name} completed on agent {agent.name}")
+                self._notify_task_completed(task, result)
                 return result
             except asyncio.TimeoutError:
                 task.status = TaskStatus.FAILED
                 task.error = f"Task timed out after {timeout}s"
                 agent.status = AgentStatus.FAILED
                 logger.error(f"Task {task.name} timed out on agent {agent.name}")
+                self._notify_task_completed(task, None)
                 raise
             except Exception as e:
                 task.status = TaskStatus.FAILED
                 task.error = str(e)
                 agent.status = AgentStatus.FAILED
                 logger.error(f"Task {task.name} failed on agent {agent.name}: {e}")
+                self._notify_task_completed(task, None)
                 raise
             finally:
                 self._running_tasks.pop(task_id, None)
@@ -193,6 +203,14 @@ class AgentLifecycleManager:
         exec_task = asyncio.create_task(_execute())
         self._running_tasks[task_id] = exec_task
         return await exec_task
+
+    def _notify_task_completed(self, task: Task, result: Optional[Dict[str, Any]]) -> None:
+        """Fire registered task-completion callbacks (used for subtask aggregation)."""
+        for cb in self._task_completed_callbacks:
+            try:
+                cb(task, result)
+            except Exception as e:
+                logger.error(f"Task completed callback error: {e}")
 
     async def shutdown_agent(self, agent: Agent, force: bool = False) -> None:
         """Shutdown an agent gracefully."""

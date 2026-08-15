@@ -67,6 +67,10 @@ class ControlPlane(ControlPlaneInterface):
         self._workflows: Dict[str, Workflow] = {}
         self._projects: Dict[str, Project] = {}
 
+        # Give the scheduler a live reference to the task store so
+        # dependency resolution works across all tasks/subtasks.
+        self.orchestration.scheduler._task_store = self._tasks
+
         # Wire up event handlers
         self._setup_event_handlers()
 
@@ -97,6 +101,9 @@ class ControlPlane(ControlPlaneInterface):
         # Task completion from orchestration
         self.orchestration.workflow_engine.add_workflow_callback(self._on_workflow_change)
         self.orchestration.scheduler.add_assignment_callback(self._on_task_assigned)
+
+        # Task completion callback (for subtask aggregation + agent-driven spawn)
+        self.lifecycle.add_task_completed_callback(self._on_task_completed)
 
     async def start(self) -> None:
         """Start the control plane and all components."""
@@ -353,6 +360,210 @@ class ControlPlane(ControlPlaneInterface):
         project.updated_at = datetime.utcnow()
         progress = self.project_progress(project.id)
         project.status = TaskStatus(progress["status"])
+
+    # ----- Subtask / decomposition support -----
+
+    def spawn_subtasks(self, parent_task: Task, subtask_specs: List[Dict[str, Any]]) -> List[Task]:
+        """Create and schedule subtasks for a parent task.
+
+        Subtasks inherit the parent's ``project_id`` and are linked back to the
+        parent via ``parent_task_id``. The parent is marked with the
+        ``has_subtasks`` metadata so aggregation logic knows to wait for them.
+        Returns the created subtask Task objects.
+        """
+        subtasks = []
+        for spec in subtask_specs:
+            st = Task(
+                name=spec.get("name", f"Subtask of {parent_task.name}"),
+                description=spec.get("description", ""),
+                required_capability=spec.get(
+                    "required_capability", parent_task.required_capability
+                ),
+                project_id=parent_task.project_id,
+                parent_task_id=parent_task.id,
+                payload=spec.get("payload", {}),
+                priority=spec.get("priority", parent_task.priority),
+                dependencies=spec.get("dependencies", []),
+            )
+            st.metadata["is_subtask"] = True
+            self._tasks[st.id] = st
+            self.orchestration.submit_task(st)
+            # Associate with parent's project
+            if st.project_id:
+                self._associate_task_with_project(st)
+            # Link parent's dependencies: follow-up subtasks wait on their siblings
+            subtasks.append(st)
+
+        # Record parent as decomposed so it won't be marked complete itself
+        parent_task.metadata["has_subtasks"] = True
+        parent_task.metadata["subtask_ids"] = [st.id for st in subtasks]
+        logger.info(f"Parent task {parent_task.name} decomposed into {len(subtasks)} subtask(s)")
+        return subtasks
+
+    def _on_task_completed(self, task: Task, result: Optional[Dict[str, Any]]) -> None:
+        """Handle task completion: refresh project + drive spawning/aggregation."""
+        # Agent-driven spawn: if result contains a 'spawn' key, create subtasks.
+        # The spawn directive can live directly in the result dict, or inside the
+        # agent's textual output as a JSON block (Hermes agents work this way).
+        specs = None
+        if result and isinstance(result, dict):
+            if result.get("spawn"):
+                specs = result["spawn"]
+            elif isinstance(result.get("output"), str):
+                specs = self._extract_spawn_from_output(result["output"])
+
+        if specs:
+            try:
+                if isinstance(specs, list):
+                    # If this task was a planner for a parent, route subtasks to
+                    # the original parent; otherwise spawn under this task.
+                    parent_id = task.metadata.get("is_planner_for") or task.id
+                    parent = self._tasks.get(parent_id) or task
+                    self.spawn_subtasks(parent, specs)
+                    # The parent's plan is ready; ensure it waits on subtasks
+                    parent.metadata["has_subtasks"] = True
+            except Exception as e:
+                logger.error(f"Failed to spawn subtasks from result: {e}")
+
+        # If this task was decomposed, run aggregation once all subtasks finish
+        if task.parent_task_id:
+            self._maybe_complete_parent(task.parent_task_id)
+
+        # Refresh enclosing project progress
+        if task.project_id:
+            project = self.get_project(task.project_id)
+            if project:
+                progress = self.project_progress(project.id)
+                project.status = TaskStatus(progress["status"])
+                project.updated_at = datetime.utcnow()
+
+    @staticmethod
+    def _extract_spawn_from_output(output: str) -> Optional[List[Dict[str, Any]]]:
+        """Look for a JSON array (list of subtask specs) in an agent's output.
+
+        An agent that was asked to decompose a task can emit a JSON array with
+        keys ``name``/``description``/``required_capability``/``payload``. We find
+        the first JSON array in the output and treat it as the subtask plan.
+        Fallback: also accept a JSON object with a ``spawn`` list.
+        """
+        import json
+        import re
+
+        if not output:
+            return None
+
+        # 1) JSON object containing a "spawn": [...] list
+        try:
+            parsed = json.loads(output)
+            if isinstance(parsed, dict) and isinstance(parsed.get("spawn"), list):
+                return parsed["spawn"]
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+
+        # 2) A JSON array embedded in surrounding text
+        match = re.search(r"\[\s*\{[\s\S]*?\}\s*\]", output)
+        if match:
+            try:
+                arr = json.loads(match.group(0))
+                if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+                    return arr
+            except Exception:
+                pass
+        return None
+
+    def _maybe_complete_parent(self, parent_task_id: str) -> None:
+        """Complete a parent task once all of its subtasks are done."""
+        parent = self._tasks.get(parent_task_id)
+        if not parent:
+            return
+        subtask_ids = [
+            t.id
+            for t in self._tasks.values()
+            if t.parent_task_id == parent_task_id and t.metadata.get("is_subtask")
+        ]
+        if not subtask_ids:
+            return
+
+        remaining = [t for t in self._tasks.values() if t.id in subtask_ids]
+        all_terminal = all(t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED) for t in remaining)
+        if not all_terminal:
+            return  # some subtasks still running/pending
+
+        failed = [t for t in remaining if t.status == TaskStatus.FAILED]
+        # Mark parent complete (or failed) with aggregated results
+        parent.result = {
+            "subtasks_total": len(remaining),
+            "subtasks_completed": len(remaining) - len(failed),
+            "subtasks_failed": len(failed),
+        }
+        if failed:
+            parent.status = TaskStatus.FAILED
+            parent.error = f"{len(failed)} of {len(remaining)} subtasks failed"
+        else:
+            parent.status = TaskStatus.COMPLETED
+        parent.completed_at = datetime.utcnow()
+        logger.info(
+            f"Parent task {parent.name} -> {parent.status.value} ({len(remaining)} subtasks)"
+        )
+        # Refresh any enclosing project
+        if parent.project_id:
+            self._associate_task_with_project(parent)
+
+    def task_tree(self, task_id: str) -> Dict[str, Any]:
+        """Return a task and its subtasks nested (for dashboards)."""
+        task = self._tasks.get(task_id)
+        if not task:
+            return {}
+        children = [
+            self.task_tree(t.id) for t in self._tasks.values() if t.parent_task_id == task_id
+        ]
+        return {"task": task, "children": children}
+
+    async def decompose_task(
+        self,
+        parent_task: Task,
+        planner_capability: str = "task_planning",
+        max_subtasks: int = 8,
+    ) -> List[Task]:
+        """Auto-decompose a task by asking a planner agent to split it.
+
+        Submits a one-off planning task requiring ``planner_capability``, whose
+        agent returns a JSON subtask plan. The plan is parsed into subtasks that
+        inherit the parent's project and are linked via ``parent_task_id``.
+        The parent is not marked complete until all subtasks finish.
+        """
+        # Build a planning prompt
+        prompt = (
+            f"Decompose this goal into at most {max_subtasks} concrete subtasks.\n"
+            f"Goal: {parent_task.description or parent_task.name}\n"
+            f"Context: {parent_task.payload}\n\n"
+            "Return ONLY a JSON array of objects, each with: "
+            "name, description, required_capability, payload. "
+            "The required_capability values must match skills available to agents."
+        )
+
+        planner = Task(
+            name=f"Plan: {parent_task.name}",
+            description=prompt,
+            required_capability=planner_capability,
+            project_id=parent_task.project_id,
+            parent_task_id=parent_task.id,
+            payload={
+                "goal": parent_task.description or parent_task.name,
+                "plan_for": parent_task.id,
+            },
+        )
+        # The planner's result will be turned into subtasks when it completes
+        planner.metadata["is_planner_for"] = parent_task.id
+        self._tasks[planner.id] = planner
+        self.orchestration.submit_task(planner)
+        logger.info(f"Submitted planner task for {parent_task.name}: {planner.id}")
+        # Mark parent as decomposed / waiting on its plan
+        parent_task.metadata["decomposing"] = True
+        parent_task.metadata["planner_task_id"] = planner.id
+        return []
 
     def submit_workflow(self, name: str, tasks: List[Task]) -> Workflow:
         """Submit a workflow for execution."""

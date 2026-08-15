@@ -31,9 +31,15 @@ class Workflow:
 class TaskScheduler:
     """Schedules tasks to available agents based on capabilities and priority."""
 
-    def __init__(self, registry: AgentRegistry, lifecycle: AgentLifecycleManager):
+    def __init__(
+        self,
+        registry: AgentRegistry,
+        lifecycle: AgentLifecycleManager,
+        task_store: Optional[Dict[str, Task]] = None,
+    ):
         self.registry = registry
         self.lifecycle = lifecycle
+        self._task_store = task_store if task_store is not None else {}
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._running = False
         self._scheduler_task: Optional[asyncio.Task] = None
@@ -112,6 +118,9 @@ class TaskScheduler:
                             f"Task {task.name} failed: no agent with capability "
                             f"'{task.required_capability}'"
                         )
+                        # Notify completion so parent aggregation / project progress
+                        # are updated even for fail-fast (never-executed) tasks.
+                        self.lifecycle._notify_task_completed(task, None)
                         continue
 
                     # Agents have the capability but are all busy - re-queue
@@ -138,17 +147,22 @@ class TaskScheduler:
                 await asyncio.sleep(1)
 
     def _dependencies_met(self, task: Task) -> bool:
-        """Check if all task dependencies are completed."""
-        # Check if all dependent task IDs are in COMPLETED status
-        # This requires access to the task store - we check via the registry
-        # For tasks not in a workflow, assume no dependencies
+        """Check if all task dependencies are completed.
+
+        A task can run only when every dependency task ID in ``task.dependencies``
+        is present in the task store and has a COMPLETED status.
+        """
         if not task.dependencies:
             return True
 
-        # Check if we can find the dependent tasks
-        # In a full implementation, this would query a task store
-        # For now, we'll check the workflow engine if available
-        return True  # Simplified - would need task store access
+        for dep_id in task.dependencies:
+            dep = self._task_store.get(dep_id)
+            if dep is None:
+                # Dependency not yet registered - wait for it to appear
+                return False
+            if dep.status != TaskStatus.COMPLETED:
+                return False
+        return True
 
     async def _find_best_agent(self, task: Task) -> Optional[Agent]:
         """Find the best available agent for a task."""
