@@ -188,7 +188,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
     name="agent-control-plane",
     agents=[
         AgentConfig(
-            type="llm_agent",
+            type="hermes_agent",
             name="researcher",
             capabilities=[
                 {"name": "research", "description": "Web research and information gathering"},
@@ -197,7 +197,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
             config={"model": "gpt-4", "temperature": 0.7},
         ),
         AgentConfig(
-            type="llm_agent",
+            type="hermes_agent",
             name="coder",
             capabilities=[
                 {"name": "code_generation", "description": "Generate code from specs"},
@@ -206,7 +206,7 @@ DEFAULT_CONFIG = ControlPlaneConfig(
             config={"model": "gpt-4", "temperature": 0.3},
         ),
         AgentConfig(
-            type="llm_agent",
+            type="hermes_agent",
             name="planner",
             capabilities=[
                 {"name": "task_planning", "description": "Break down goals into tasks"},

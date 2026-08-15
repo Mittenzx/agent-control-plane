@@ -184,28 +184,6 @@ async def lifespan(app: FastAPI):
     control_plane = ControlPlane(config)
     await control_plane.start()
 
-    # Register example agents so the dashboard shows live data
-    try:
-        from examples.llm_agents import (
-            create_research_agent,
-            create_coder_agent,
-            create_planner_agent,
-        )
-
-        for factory in (create_research_agent, create_coder_agent, create_planner_agent):
-            agent = factory(
-                factory.__name__.replace("create_", "").replace("_agent", ""), control_plane
-            )
-            control_plane.registry.register(agent)
-            await control_plane.lifecycle.initialize_agent(agent)
-            for cap in agent.capabilities:
-                control_plane.capability_registry.register_capability(cap, agent.id)
-            control_plane.message_bus.register_agent_queue(agent.id, asyncio.Queue())
-            control_plane.message_bus.subscribe(agent.id, agent.handle_message)
-        logger.info("Registered example agents")
-    except Exception as e:
-        logger.warning(f"Could not register example agents: {e}")
-
     # Start background state updater
     updater_task = asyncio.create_task(state_updater())
 
