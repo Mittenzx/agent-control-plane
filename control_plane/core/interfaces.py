@@ -72,13 +72,38 @@ class AgentInfo:
 
 
 @dataclass
+class Project:
+    """A project is a goal-oriented container for a set of tasks.
+
+    Tasks are the individual units of work that move a project toward its
+    goal. A project tracks its own progress as its tasks complete.
+    """
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    description: str = ""
+    goal: str = ""
+    status: TaskStatus = TaskStatus.PENDING
+    task_ids: List[str] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Task:
-    """A unit of work that can be executed by an agent."""
+    """A unit of work that can be executed by an agent.
+
+    A task is the smallest piece of executable work. It may optionally belong
+    to a :class:`Project` (via ``project_id``), in which case completing it
+    advances the project's progress toward its goal.
+    """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
     description: str = ""
     required_capability: str = ""
+    project_id: Optional[str] = None
     payload: Dict[str, Any] = field(default_factory=dict)
     status: TaskStatus = TaskStatus.PENDING
     assigned_agent_id: Optional[str] = None

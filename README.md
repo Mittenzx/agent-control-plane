@@ -65,6 +65,56 @@ asyncio.run(main())
 
 You can also spawn a Hermes agent from the dashboard: enter a name + comma-separated capabilities and click **Spawn Agent**. Spawned agents appear in the Agents panel with a `hermes_agent` type and run tasks on Hermes.
 
+## Projects & Tasks
+
+The control plane is organized around **projects** and **tasks**:
+
+- **A project** is a goal you're working toward (e.g. "Ship a marketing site"). It groups tasks and tracks progress as they complete.
+- **A task** is a single, concrete piece of work handed to an agent (e.g. "Research current AI trends"). A task has a goal, a required capability (which agent skill must do it), and optionally a `project_id` that links it to a project.
+
+### Defining a task
+
+```python
+from control_plane.core.interfaces import Task
+
+task = Task(
+    name="Research design trends",
+    description="Research current design trends for the homepage",
+    required_capability="research",   # must match an agent's capability
+    project_id=project.id,            # optional link to a project
+    payload={"goal": "Research design trends for the homepage"},
+)
+task_id = cp.submit_task(task)
+```
+
+### Creating a project
+
+```python
+project = cp.create_project(
+    name="Website Redesign",
+    goal="Modernize the marketing site with a new design and CMS",
+)
+```
+
+### Project progress
+
+`cp.project_progress(project_id)` computes completion from its tasks:
+
+```python
+progress = cp.project_progress(project.id)
+# {'total': 2, 'completed': 1, 'failed': 0, 'running': 0,
+#  'pending': 1, 'progress_pct': 50, 'status': 'running'}
+```
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/projects` | List all projects with progress |
+| POST | `/api/projects` | Create a project |
+| GET | `/api/projects/{id}` | Project detail + its tasks |
+| POST | `/api/tasks` | Create a task (accepts `project_id`) |
+
 ## Web Dashboard
 
 The control plane ships with a real-time monitoring dashboard built on **FastAPI + WebSockets + HTMX/Alpine.js**. It gives you live visibility into agents, tasks, workflows, and system metrics — no build step required.

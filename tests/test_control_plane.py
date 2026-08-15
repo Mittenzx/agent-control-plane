@@ -491,5 +491,50 @@ class TestHermesAgent:
         assert result["exit_code"] == 0
 
 
+class TestProjects:
+    """Tests for project + task association and progress."""
+
+    @pytest.mark.asyncio
+    async def test_create_and_list_project(self):
+        """Projects can be created and listed."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("Website", goal="Ship a marketing site")
+        assert p.name == "Website"
+        assert p.id in [x.id for x in cp.list_projects()]
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_task_associates_with_project(self):
+        """A task with project_id is linked and project state updates."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("API", goal="Build a REST API")
+        task = Task(name="Write endpoints", required_capability="code",
+                    project_id=p.id)
+        cp.submit_task(task)
+        assert task.id in p.task_ids
+        assert cp.get_project_tasks(p.id) == [task]
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_project_progress_computes_percent(self):
+        """Progress percent reflects completed task ratio."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("Docs", goal="Document the system")
+        t1 = Task(name="T1", required_capability="write", project_id=p.id)
+        t2 = Task(name="T2", required_capability="write", project_id=p.id)
+        cp.submit_task(t1)
+        cp.submit_task(t2)
+        # Mark one complete
+        t1.status = TaskStatus.COMPLETED
+        progress = cp.project_progress(p.id)
+        assert progress["total"] == 2
+        assert progress["completed"] == 1
+        assert progress["progress_pct"] == 50
+        await cp.stop()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

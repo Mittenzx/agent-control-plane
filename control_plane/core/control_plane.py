@@ -15,6 +15,7 @@ from ..core.interfaces import (
     AgentCapability,
     Task,
     TaskStatus,
+    Project,
     Message,
     MessageType,
     ControlPlane as ControlPlaneInterface,
@@ -64,6 +65,7 @@ class ControlPlane(ControlPlaneInterface):
         self._started_at: Optional[datetime] = None
         self._tasks: Dict[str, Task] = {}
         self._workflows: Dict[str, Workflow] = {}
+        self._projects: Dict[str, Project] = {}
 
         # Wire up event handlers
         self._setup_event_handlers()
@@ -252,9 +254,17 @@ class ControlPlane(ControlPlaneInterface):
         logger.info(f"Stopped agent: {agent.name} ({agent_id})")
 
     def submit_task(self, task: Task) -> str:
-        """Submit a task for execution."""
+        """Submit a task for execution.
+
+        If the task has a ``project_id``, it is associated with that project
+        and the project's progress is recomputed.
+        """
         self._tasks[task.id] = task
         self.orchestration.submit_task(task)
+
+        # Associate with project if applicable
+        if task.project_id:
+            self._associate_task_with_project(task)
 
         # Emit event
         self.event_bus.emit_sync(
@@ -267,6 +277,82 @@ class ControlPlane(ControlPlaneInterface):
         )
 
         return task.id
+
+    # ----- Project management -----
+
+    def create_project(
+        self,
+        name: str,
+        description: str = "",
+        goal: str = "",
+    ) -> Project:
+        """Create a new project (a goal-oriented container for tasks)."""
+        project = Project(name=name, description=description, goal=goal)
+        self._projects[project.id] = project
+        logger.info(f"Created project: {name} ({project.id})")
+        self.event_bus.emit_sync(
+            "project.created",
+            {"project_id": project.id, "project_name": project.name},
+        )
+        return project
+
+    def get_project(self, project_id: str) -> Optional[Project]:
+        """Get a project by ID."""
+        return self._projects.get(project_id)
+
+    def list_projects(self) -> List[Project]:
+        """List all projects."""
+        return list(self._projects.values())
+
+    def get_project_tasks(self, project_id: str) -> List[Task]:
+        """Get all tasks belonging to a project."""
+        return [t for t in self._tasks.values() if t.project_id == project_id]
+
+    def project_progress(self, project_id: str) -> Dict[str, Any]:
+        """Compute progress for a project from its tasks.
+
+        Returns counts and a 0-100 completion percentage plus an overall
+        status derived from the task statuses.
+        """
+        tasks = self.get_project_tasks(project_id)
+        total = len(tasks)
+        done = len([t for t in tasks if t.status == TaskStatus.COMPLETED])
+        failed = len([t for t in tasks if t.status == TaskStatus.FAILED])
+        running = len([t for t in tasks if t.status == TaskStatus.RUNNING])
+        pending = total - done - failed - running
+
+        pct = round((done / total * 100) if total else 0)
+
+        project = self.get_project(project_id)
+        status = project.status if project else TaskStatus.PENDING
+        if total and failed and not running and not pending:
+            status = TaskStatus.FAILED
+        elif total and done == total:
+            status = TaskStatus.COMPLETED
+        elif running or pending:
+            status = TaskStatus.RUNNING
+
+        return {
+            "total": total,
+            "completed": done,
+            "failed": failed,
+            "running": running,
+            "pending": pending,
+            "progress_pct": pct,
+            "status": status.value,
+        }
+
+    def _associate_task_with_project(self, task: Task) -> None:
+        """Link a task to its project and refresh project state."""
+        project = self._projects.get(task.project_id or "")
+        if not project:
+            logger.warning(f"Task {task.name} references unknown project {task.project_id}")
+            return
+        if task.id not in project.task_ids:
+            project.task_ids.append(task.id)
+        project.updated_at = datetime.utcnow()
+        progress = self.project_progress(project.id)
+        project.status = TaskStatus(progress["status"])
 
     def submit_workflow(self, name: str, tasks: List[Task]) -> Workflow:
         """Submit a workflow for execution."""

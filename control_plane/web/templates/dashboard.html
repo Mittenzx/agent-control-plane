@@ -28,6 +28,7 @@
         .dot-yellow { background: #fbbf24; }
         .dot-red { background: #fb7185; }
         .dot-blue { background: #22d3ee; }
+        .dot-gray { background: #6b7280; }
         .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; }
         .scrollbar::-webkit-scrollbar { width: 6px; }
         .scrollbar::-webkit-scrollbar-track { background: #0a0e1a; }
@@ -36,6 +37,9 @@
         @keyframes pulse { 0%,100% {opacity:1} 50% {opacity:.5} }
         .flash-row { animation: flash 1s ease; }
         @keyframes flash { from { background: rgba(34,211,238,0.15); } to { background: transparent; } }
+        .progress-bar { height: 8px; border-radius: 9999px; background: #1f2937; overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease; }
+        select, input, textarea { color-scheme: dark; }
     </style>
 </head>
 <body class="bg-darkbg text-gray-200 min-h-screen">
@@ -50,7 +54,7 @@
                 </div>
                 <div>
                     <h1 class="text-xl font-bold text-white">Agent Control Plane</h1>
-                    <p class="text-xs text-gray-500">Real-time AI Agent Orchestration</p>
+                    <p class="text-xs text-gray-500">Orchestrate Hermes agents across projects and tasks</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -63,7 +67,11 @@
         </header>
 
         <!-- Stats Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6" id="stats-grid">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6" id="stats-grid">
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Projects</div>
+                <div id="stat-projects" class="text-2xl font-bold text-violet-400">0</div>
+            </div>
             <div class="card p-4">
                 <div class="text-xs text-gray-500 mb-1">Total Tasks</div>
                 <div id="stat-total" class="text-2xl font-bold text-white">0</div>
@@ -82,11 +90,79 @@
             </div>
             <div class="card p-4">
                 <div class="text-xs text-gray-500 mb-1">Total Agents</div>
-                <div id="stat-total-agents" class="text-2xl font-bold text-violet-400">0</div>
+                <div id="stat-total-agents" class="text-2xl font-bold text-emerald-400">0</div>
             </div>
         </div>
 
-        <!-- Main Grid -->
+        <!-- Projects Panel -->
+        <div class="card p-4 mb-6">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div>
+                    <h2 class="text-sm font-semibold text-white">Projects</h2>
+                    <p class="text-xs text-gray-500 mt-0.5">A project is a goal you're working toward. Tasks are the steps that move it forward.</p>
+                </div>
+                <div class="flex gap-2">
+                    <input id="project-name" type="text" placeholder="Project name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-violet-500 w-44">
+                    <input id="project-goal" type="text" placeholder="What are you trying to achieve?" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-violet-500 flex-1 min-w-52">
+                    <button onclick="createProject()" class="px-3 py-1 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors whitespace-nowrap">New Project</button>
+                </div>
+            </div>
+            <div id="projects-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div class="text-xs text-gray-600 py-8 text-center md:col-span-2 xl:col-span-3">No projects yet — create one to start tracking progress.</div>
+            </div>
+        </div>
+
+        <!-- New Task Form -->
+        <div class="card p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-white">New Task</h2>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <!-- Explain what a task is -->
+                <div class="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-xs font-semibold text-cyan-400 mb-2">What is a task?</div>
+                    <p class="text-[11px] text-gray-400 leading-relaxed">
+                        A <span class="text-white">task</span> is a single, concrete piece of work you hand to an agent —
+                        like "Research current AI trends" or "Write the FastAPI auth endpoints." Each task:
+                    </p>
+                    <ul class="text-[11px] text-gray-400 mt-2 space-y-1 leading-relaxed">
+                        <li>• Has a <span class="text-gray-200">goal</span> — what you want done</li>
+                        <li>• Needs a <span class="text-gray-200">capability</span> — the skill an agent must have to do it</li>
+                        <li>• Optionally belongs to a <span class="text-gray-200">project</span>, and counts toward its progress</li>
+                    </ul>
+                    <p class="text-[11px] text-gray-500 mt-2">Pick a capability that matches an available agent's skills, or the task can't be run.</p>
+                </div>
+
+                <!-- Task inputs -->
+                <div class="lg:col-span-2 space-y-3">
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Task goal <span class="text-gray-600">(natural language — say what you want done)</span></label>
+                        <textarea id="task-goal" rows="2" placeholder="e.g. Research current trends in AI agent frameworks and summarize the top 3"
+                            class="w-full px-3 py-2 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 resize-none"></textarea>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-400 block mb-1">Project <span class="text-gray-600">(optional)</span></label>
+                            <select id="task-project" class="w-full px-3 py-2 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
+                                <option value="">— No project (standalone task) —</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400 block mb-1">Capability <span class="text-gray-600">(which agent skill)</span></label>
+                            <select id="task-capability" class="w-full px-3 py-2 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
+                                <option value="">Select capability...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div id="task-feedback" class="hidden text-xs rounded-lg p-2 flex-1 mr-3"></div>
+                        <button onclick="createTask()" class="px-4 py-2 text-xs bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors whitespace-nowrap">Submit Task →</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Grid: Agents + Tasks -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <!-- Agents Panel -->
             <div class="lg:col-span-1 card p-4">
@@ -103,15 +179,8 @@
             <div class="lg:col-span-2 card p-4">
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-sm font-semibold text-white">Tasks</h2>
-                    <div class="flex gap-2">
-                        <input id="task-name" type="text" placeholder="Task name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500">
-                        <select id="task-capability" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
-                            <option value="">Select capability...</option>
-                        </select>
-                        <button onclick="createTask()" class="px-3 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors">Submit</button>
-                    </div>
+                    <span class="text-xs text-gray-500">grouped by project</span>
                 </div>
-                <div id="task-feedback" class="hidden mb-3 text-xs rounded-lg p-2"></div>
                 <div id="tasks-list" class="space-y-2 max-h-96 overflow-y-auto scrollbar pr-1">
                     <div class="text-xs text-gray-600 py-8 text-center">Loading tasks...</div>
                 </div>
@@ -175,46 +244,46 @@
 
         <!-- Footer -->
         <footer class="mt-6 text-center text-xs text-gray-600">
-            Agent Control Plane v0.1.0 · Real-time monitoring via WebSocket
+            Agent Control Plane · Hermes-as-core · Real-time via WebSocket
         </footer>
     </div>
 
     <script>
+        // ===== State =====
+        let projects = [];
+        let agents = [];
+
         // WebSocket connection for real-time updates
         let ws = null;
-        
+
         function connectWS() {
             const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
             ws = new WebSocket(protocol + window.location.host + '/ws');
-            
+
             ws.onopen = () => {
                 document.getElementById('ws-dot').className = 'dot dot-green';
                 document.getElementById('ws-text').textContent = 'Connected';
             };
-            
+
             ws.onclose = () => {
                 document.getElementById('ws-dot').className = 'dot dot-red';
                 document.getElementById('ws-text').textContent = 'Disconnected - retrying...';
                 setTimeout(connectWS, 3000);
             };
-            
-            ws.onerror = (err) => {
-                console.error('WebSocket error:', err);
-            };
-            
+
+            ws.onerror = (err) => { console.error('WebSocket error:', err); };
+
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.event === 'state_update' || msg.event === 'initial_state') {
                         renderState(msg.data);
                     }
-                } catch (e) {
-                    console.error('Error parsing message:', e);
-                }
+                } catch (e) { console.error('Error parsing message:', e); }
             };
         }
-        
-        // Status badge helper
+
+        // ===== Helpers =====
         function statusBadge(status) {
             const map = {
                 'PENDING': ['text-yellow-400', 'dot-yellow'],
@@ -231,64 +300,184 @@
             const [color, dot] = map[status] || ['text-gray-400', 'dot-gray'];
             return `<span class="inline-flex items-center gap-1.5 text-xs ${color}"><span class="dot ${dot}"></span>${status}</span>`;
         }
-        
-        // Render full state
+
+        function progressColor(pct) {
+            if (pct >= 100) return 'bg-emerald-500';
+            if (pct >= 60) return 'bg-cyan-500';
+            if (pct >= 30) return 'bg-violet-500';
+            return 'bg-amber-500';
+        }
+
+        // ===== Render full state =====
         function renderState(state) {
-            // Update stats
             const m = state.metrics || {};
+            document.getElementById('stat-projects').textContent = m.total_projects || 0;
             document.getElementById('stat-total').textContent = m.total_tasks || 0;
             document.getElementById('stat-completed').textContent = m.completed_tasks || 0;
             document.getElementById('stat-failed').textContent = m.failed_tasks || 0;
             document.getElementById('stat-active-agents').textContent = m.active_agents || 0;
             document.getElementById('stat-total-agents').textContent = m.total_agents || 0;
-            
-            renderAgents(state.agents || []);
+
+            agents = state.agents || [];
+            projects = state.projects || [];
+            renderAgents(agents);
             renderTasks(state.tasks || []);
-            refreshCapabilities(state.agents || []);
-            renderHermesAgents(state.agents || []);
+            renderProjects(projects);
+            refreshCapabilities(agents);
+            refreshProjectSelect(projects);
+            renderHermesAgents(agents);
         }
-        
-        // Render agents
-        function renderAgents(agents) {
-            const container = document.getElementById('agents-list');
-            if (!agents.length) {
-                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No agents registered</div>';
+
+        // ===== Projects =====
+        function renderProjects(projects) {
+            const container = document.getElementById('projects-list');
+            if (!projects.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center md:col-span-2 xl:col-span-3">No projects yet — create one to start tracking progress.</div>';
                 return;
             }
-            
-            document.getElementById('agent-count').textContent = `${agents.length} online`;
-            
-            container.innerHTML = agents.map(agent => `
-                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-sm font-medium text-white">${agent.name}</span>
-                        ${statusBadge(agent.status)}
+            container.innerHTML = projects.map(p => {
+                const pr = p.progress || {};
+                const pct = pr.progress_pct || 0;
+                return `
+                <div class="border border-gray-800 rounded-lg p-3 bg-gray-900 flex flex-col">
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                        <span class="text-sm font-medium text-white">${p.name}</span>
+                        ${statusBadge(p.status)}
                     </div>
-                    <div class="text-xs text-gray-500 mb-1.5">${agent.type}</div>
-                    <div class="flex flex-wrap gap-1">
-                        ${(agent.capabilities || []).map(cap => 
-                            `<span class="px-1.5 py-0.5 text-[10px] bg-gray-800 text-cyan-400 rounded">${cap}</span>`
-                        ).join('')}
+                    ${p.goal ? `<div class="text-xs text-gray-500 mb-2 line-clamp-2">${p.goal}</div>` : ''}
+                    <div class="flex items-center gap-2 mb-1">
+                        <div class="progress-bar flex-1"><div class="progress-fill ${progressColor(pct)}" style="width:${pct}%"></div></div>
+                        <span class="text-xs font-semibold ${pct>=100?'text-emerald-400':pct>=60?'text-cyan-400':'text-amber-400'}">${pct}%</span>
                     </div>
-                </div>
-            `).join('');
+                    <div class="text-[11px] text-gray-500">${pr.completed||0}/${pr.total||0} tasks done
+                        ${pr.running?` · <span class="text-cyan-400">${pr.running} running</span>`:''}
+                        ${pr.failed?` · <span class="text-rose-400">${pr.failed} failed</span>`:''}
+                    </div>
+                    <button onclick="viewProject('${p.id}')" class="mt-2 text-[11px] text-violet-400 hover:text-violet-300 text-left transition-colors">View tasks →</button>
+                </div>`;
+            }).join('');
         }
-        
-        // Render tasks
+
+        async function createProject() {
+            const name = document.getElementById('project-name').value;
+            const goal = document.getElementById('project-goal').value;
+            if (!name) { showTaskFeedback('Enter a project name', 'error'); return; }
+            try {
+                const res = await fetch('/api/projects', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, goal: goal, description: goal})
+                });
+                const data = await res.json();
+                if (data.project_id) {
+                    document.getElementById('project-name').value = '';
+                    document.getElementById('project-goal').value = '';
+                    showTaskFeedback('Created project "' + name + '"', 'success');
+                    addEvent('project.created', {project_name: name});
+                } else {
+                    showTaskFeedback('Error: ' + JSON.stringify(data), 'error');
+                }
+            } catch (e) { console.error(e); showTaskFeedback('Failed to create project', 'error'); }
+        }
+
+        function viewProject(projectId) {
+            // Fetch the project detail and open a modal-style overlay
+            fetch('/api/projects/' + projectId)
+                .then(r => r.json())
+                .then(data => {
+                    const p = data.project;
+                    const tasks = data.tasks || [];
+                    renderProjectModal(p, tasks);
+                })
+                .catch(e => console.error(e));
+        }
+
+        function renderProjectModal(p, tasks) {
+            // Simple overlay modal
+            let overlay = document.getElementById('project-modal');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'project-modal';
+                overlay.className = 'fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 pt-16';
+                overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+                document.body.appendChild(overlay);
+            }
+            const pr = p.progress || {};
+            const pct = pr.progress_pct || 0;
+            const rows = tasks.map(t => `
+                <div class="border border-gray-800 rounded p-2 bg-gray-900">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-white">${t.name}</span>
+                        ${statusBadge(t.status)}
+                    </div>
+                    ${t.error ? `<div class="text-[11px] text-rose-400 mt-1">${t.error}</div>` : ''}
+                </div>`).join('') || '<div class="text-xs text-gray-500 py-4 text-center">No tasks in this project yet.</div>';
+
+            overlay.innerHTML = `
+                <div class="bg-cardbg border border-gray-700 rounded-xl p-5 w-full max-w-2xl max-h-[80vh] overflow-y-auto scrollbar">
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <h3 class="text-base font-bold text-white">${p.name}</h3>
+                            ${p.goal ? `<p class="text-xs text-gray-500 mt-1">${p.goal}</p>` : ''}
+                        </div>
+                        <button onclick="this.closest('#project-modal').remove()" class="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
+                    </div>
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="progress-bar flex-1"><div class="progress-fill ${progressColor(pct)}" style="width:${pct}%"></div></div>
+                        <span class="text-sm font-semibold ${pct>=100?'text-emerald-400':pct>=60?'text-cyan-400':'text-amber-400'}">${pct}%</span>
+                    </div>
+                    <div class="text-[11px] text-gray-500 mb-3">${pr.completed||0}/${pr.total||0} done · ${pr.running||0} running · ${pr.pending||0} pending · ${pr.failed||0} failed</div>
+                    <div class="text-xs font-semibold text-gray-300 mb-2">Tasks in this project</div>
+                    <div class="space-y-2">${rows}</div>
+                </div>`;
+        }
+
+        // ===== Tasks (grouped by project) =====
         function renderTasks(tasks) {
             const container = document.getElementById('tasks-list');
             if (!tasks.length) {
-                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No tasks submitted</div>';
+                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No tasks yet — submit one above.</div>';
                 return;
             }
-            
-            // Sort: running first, then pending, then completed
+
             const order = {'RUNNING': 0, 'QUEUED': 1, 'PENDING': 2, 'COMPLETED': 3, 'FAILED': 4};
-            const sorted = [...tasks].sort((a, b) => 
-                (order[a.status] ?? 9) - (order[b.status] ?? 9) || (b.priority - a.priority)
-            );
-            
-            container.innerHTML = sorted.map(task => `
+            const sortFn = (a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (b.priority - a.priority);
+
+            // Group: tasks with a project first (by project), then standalone
+            const byProject = {};
+            const standalone = [];
+            tasks.forEach(t => {
+                if (t.project_id) {
+                    (byProject[t.project_id] = byProject[t.project_id] || []).push(t);
+                } else {
+                    standalone.push(t);
+                }
+            });
+
+            const projectName = (id) => {
+                const p = projects.find(x => x.id === id);
+                return p ? p.name : '(unknown project)';
+            };
+
+            let html = '';
+
+            // Project groups
+            Object.entries(byProject).forEach(([pid, pts]) => {
+                html += `<div class="text-[11px] font-semibold text-violet-400 mt-1 mb-1.5 uppercase tracking-wide">📁 ${projectName(pid)}</div>`;
+                html += pts.sort(sortFn).map(t => taskRow(t)).join('');
+            });
+
+            // Standalone
+            if (standalone.length) {
+                html += `<div class="text-[11px] font-semibold text-gray-500 mt-3 mb-1.5 uppercase tracking-wide">Standalone</div>`;
+                html += standalone.sort(sortFn).map(t => taskRow(t)).join('');
+            }
+
+            container.innerHTML = html;
+        }
+
+        function taskRow(task) {
+            return `
                 <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
                     <div class="flex items-center justify-between mb-1">
                         <span class="text-sm font-medium text-white">${task.name}</span>
@@ -300,22 +489,20 @@
                     </div>
                     ${task.result ? `<div class="mt-2 text-xs text-gray-400 bg-gray-800 rounded p-2">Result: ${JSON.stringify(task.result).slice(0, 150)}</div>` : ''}
                     ${task.error ? `<div class="mt-2 text-xs text-rose-400 bg-rose-950/50 rounded p-2">${task.error}</div>` : ''}
-                </div>
-            `).join('');
+                </div>`;
         }
-        
-        // Create a new task
+
+        // ===== Create a task =====
         async function createTask() {
-            const name = document.getElementById('task-name').value;
+            const goal = document.getElementById('task-goal').value;
             const capability = document.getElementById('task-capability').value;
-            if (!name) {
-                showTaskFeedback('Please enter a task name', 'error');
-                return;
-            }
-            if (!capability) {
-                showTaskFeedback('Please select a capability', 'error');
-                return;
-            }
+            const projectId = document.getElementById('task-project').value;
+
+            if (!goal) { showTaskFeedback('Please describe what you want the task to accomplish', 'error'); return; }
+            if (!capability) { showTaskFeedback('Please select a capability — it must match an available agent', 'error'); return; }
+
+            // Derive a short name from the first part of the goal
+            const name = goal.split(/[.\n]/)[0].slice(0, 60) || 'Task';
 
             try {
                 const res = await fetch('/api/tasks', {
@@ -323,17 +510,19 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         name: name,
-                        description: 'Submitted from dashboard',
+                        description: goal,
                         required_capability: capability,
-                        payload: {},
+                        project_id: projectId || null,
+                        payload: {goal: goal},
                         priority: 5
                     })
                 });
                 const data = await res.json();
                 if (data.task_id) {
-                    document.getElementById('task-name').value = '';
-                    showTaskFeedback('Task submitted to agent(s) with capability "' + capability + '"', 'success');
-                    addEvent('task.submitted', {task_name: name, capability: capability});
+                    document.getElementById('task-goal').value = '';
+                    const projName = projectId ? (projects.find(p=>p.id===projectId)?.name || 'project') : 'standalone';
+                    showTaskFeedback('Task submitted → agent with "' + capability + '"' + (projectId ? ' · project: ' + projName : ''), 'success');
+                    addEvent('task.submitted', {task_name: name, capability: capability, project_id: projectId});
                 } else {
                     showTaskFeedback('Error: ' + JSON.stringify(data), 'error');
                 }
@@ -343,57 +532,81 @@
             }
         }
 
-        // Show inline feedback banner
         function showTaskFeedback(message, type) {
             const el = document.getElementById('task-feedback');
             el.classList.remove('hidden');
-            el.className = 'mb-3 text-xs rounded-lg p-2 ' +
-                (type === 'error'
-                    ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
-                    : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
+            el.className = 'text-xs rounded-lg p-2 ' + (type === 'error'
+                ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
+                : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
             el.textContent = message;
-            // Auto-hide success after 4s
-            if (type === 'success') {
-                setTimeout(() => el.classList.add('hidden'), 4000);
-            }
+            if (type === 'success') setTimeout(() => el.classList.add('hidden'), 5000);
         }
 
-        // Populate capability dropdown from live agents
-        function refreshCapabilities(agents) {
+        // ===== Capability + project dropdowns =====
+        function refreshCapabilities(agentList) {
             const select = document.getElementById('task-capability');
             const current = select.value;
             const caps = new Set();
-            (agents || []).forEach(a => (a.capabilities || []).forEach(c => caps.add(c)));
+            (agentList || []).forEach(a => (a.capabilities || []).forEach(c => caps.add(c)));
             const sorted = Array.from(caps).sort();
             if (!sorted.length) {
                 select.innerHTML = '<option value="">No agents registered</option>';
                 return;
             }
             let html = '<option value="">Select capability...</option>';
-            sorted.forEach(c => {
-                html += `<option value="${c}" ${c === current ? 'selected' : ''}>${c}</option>`;
+            sorted.forEach(c => { html += `<option value="${c}" ${c === current ? 'selected' : ''}>${c}</option>`; });
+            select.innerHTML = html;
+        }
+
+        function refreshProjectSelect(projects) {
+            const select = document.getElementById('task-project');
+            const current = select.value;
+            let html = '<option value="">— No project (standalone task) —</option>';
+            (projects || []).forEach(p => {
+                html += `<option value="${p.id}" ${p.id === current ? 'selected' : ''}>${p.name}</option>`;
             });
             select.innerHTML = html;
         }
-        
-        // Load workflows
+
+        // ===== Agents =====
+        function renderAgents(agentList) {
+            const container = document.getElementById('agents-list');
+            if (!agentList.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No agents registered</div>';
+                return;
+            }
+            document.getElementById('agent-count').textContent = `${agentList.length} online`;
+            container.innerHTML = agentList.map(agent => `
+                <div class="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors bg-gray-900">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-white">${agent.name}</span>
+                        ${statusBadge(agent.status)}
+                    </div>
+                    <div class="text-xs text-gray-500 mb-1.5">${agent.type}</div>
+                    <div class="flex flex-wrap gap-1">
+                        ${(agent.capabilities || []).map(cap =>
+                            `<span class="px-1.5 py-0.5 text-[10px] bg-gray-800 text-cyan-400 rounded">${cap}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ===== Workflows =====
         async function refreshWorkflows() {
             try {
                 const res = await fetch('/api/workflows');
                 const data = await res.json();
                 renderWorkflows(data.workflows || []);
-            } catch (e) {
-                console.error('Error loading workflows:', e);
-            }
+            } catch (e) { console.error('Error loading workflows:', e); }
         }
-        
+
         function renderWorkflows(workflows) {
             const container = document.getElementById('workflows-list');
             if (!workflows.length) {
                 container.innerHTML = '<div class="text-xs text-gray-600 py-6 text-center">No workflows yet</div>';
                 return;
             }
-            
             container.innerHTML = workflows.map(wf => `
                 <div class="border border-gray-800 rounded-lg p-3 bg-gray-900">
                     <div class="flex items-center justify-between mb-1">
@@ -401,20 +614,14 @@
                         ${statusBadge(wf.status)}
                     </div>
                     <div class="text-xs text-gray-500">${(wf.tasks || []).length} tasks · ${wf.id.slice(0,8)}</div>
-                    <div class="flex flex-wrap gap-1 mt-2">
-                        ${(wf.tasks || []).map(t => 
-                            `<span class="px-1.5 py-0.5 text-[10px] ${t.status === 'COMPLETED' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-gray-800 text-gray-400'} rounded">${t.name}</span>`
-                        ).join('')}
-                    </div>
                 </div>
             `).join('');
         }
-        
-        // Events log
+
+        // ===== Events =====
         function addEvent(eventType, data) {
             const container = document.getElementById('events-list');
             if (container.querySelector('.py-6')) container.innerHTML = '';
-            
             const now = new Date().toLocaleTimeString();
             const colors = {
                 'task.submitted': 'text-cyan-400',
@@ -423,8 +630,8 @@
                 'task.failed': 'text-rose-400',
                 'agent.registered': 'text-violet-400',
                 'agent.status_changed': 'text-yellow-400',
+                'project.created': 'text-violet-400',
             };
-            
             const el = document.createElement('div');
             el.className = 'border border-gray-800 rounded p-2 bg-gray-900 flash-row';
             el.innerHTML = `
@@ -432,29 +639,21 @@
                     <span class="text-xs ${colors[eventType] || 'text-gray-400'}">${eventType}</span>
                     <span class="text-[10px] text-gray-600">${now}</span>
                 </div>
-                <div class="text-[11px] text-gray-500 mt-0.5">${JSON.stringify(data).slice(0, 120)}</div>
-            `;
+                <div class="text-[11px] text-gray-500 mt-0.5">${JSON.stringify(data).slice(0, 120)}</div>`;
             container.prepend(el);
-            
-            // Limit to 50 events
-            while (container.children.length > 50) {
-                container.removeChild(container.lastChild);
-            }
+            while (container.children.length > 50) container.removeChild(container.lastChild);
         }
-        
+
         function clearEvents() {
-            document.getElementById('events-list').innerHTML = 
+            document.getElementById('events-list').innerHTML =
                 '<div class="text-xs text-gray-600 py-6 text-center">No events yet</div>';
         }
 
-        // ===== Hermes agent management =====
+        // ===== Hermes =====
         async function spawnHermesAgent() {
             const name = document.getElementById('hermes-name').value;
             const capsRaw = document.getElementById('hermes-caps').value;
-            if (!name) {
-                showHermesFeedback('Enter an agent name', 'error');
-                return;
-            }
+            if (!name) { showHermesFeedback('Enter an agent name', 'error'); return; }
             const caps = capsRaw ? capsRaw.split(',').map(c => c.trim()).filter(Boolean) : ['reasoning'];
             try {
                 const res = await fetch('/api/hermes/agents', {
@@ -470,19 +669,15 @@
                 } else {
                     showHermesFeedback('Error: ' + JSON.stringify(data), 'error');
                 }
-            } catch (e) {
-                console.error(e);
-                showHermesFeedback('Failed to spawn agent', 'error');
-            }
+            } catch (e) { console.error(e); showHermesFeedback('Failed to spawn agent', 'error'); }
         }
 
         function showHermesFeedback(message, type) {
             const el = document.getElementById('hermes-feedback');
             el.classList.remove('hidden');
-            el.className = 'mb-3 text-xs rounded-lg p-2 ' +
-                (type === 'error'
-                    ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
-                    : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
+            el.className = 'mb-3 text-xs rounded-lg p-2 ' + (type === 'error'
+                ? 'bg-rose-950/50 text-rose-300 border border-rose-800'
+                : 'bg-emerald-950/50 text-emerald-300 border border-emerald-800');
             el.textContent = message;
             if (type === 'success') setTimeout(() => el.classList.add('hidden'), 5000);
         }
@@ -501,16 +696,15 @@
                 el.innerHTML = '<div class="text-xs text-gray-600 py-4 text-center">No Hermes sessions yet</div>';
                 return;
             }
-            // hermes sessions list is plain text; show last 15 lines
             const lines = text.split('\n').filter(l => l.trim()).slice(-15);
             el.innerHTML = lines.map(l =>
                 `<div class="border border-gray-800 rounded px-2 py-1 bg-gray-900 text-gray-400">${l.replace(/</g,'&lt;')}</div>`
             ).join('');
         }
 
-        function renderHermesAgents(agents) {
+        function renderHermesAgents(agentList) {
             const el = document.getElementById('hermes-agents-list');
-            const hermes = (agents || []).filter(a => a.type === 'hermes_agent');
+            const hermes = (agentList || []).filter(a => a.type === 'hermes_agent');
             if (!hermes.length) {
                 el.innerHTML = '<div class="text-xs text-gray-600 py-4 text-center">Spawn agents to run them on Hermes</div>';
                 return;
@@ -528,14 +722,13 @@
             `).join('');
         }
 
-        // Initial load additions
+        // ===== Init =====
         connectWS();
         refreshWorkflows();
         refreshHermesSessions();
         setInterval(refreshWorkflows, 5000);
         setInterval(refreshHermesSessions, 10000);
-        
-        // Also poll REST API as fallback
+
         async function pollState() {
             try {
                 const res = await fetch('/api/state');

@@ -101,6 +101,7 @@ def serialize_task(task: Task) -> Dict[str, Any]:
         "description": task.description,
         "status": task.status.value if hasattr(task.status, "value") else str(task.status),
         "required_capability": task.required_capability,
+        "project_id": getattr(task, "project_id", None),
         "priority": task.priority,
         "payload": task.payload,
         "result": task.result,
@@ -115,6 +116,25 @@ def serialize_task(task: Task) -> Dict[str, Any]:
         "completed_at": task.completed_at.isoformat()
         if hasattr(task, "completed_at") and task.completed_at
         else None,
+    }
+
+
+def serialize_project(project) -> Dict[str, Any]:
+    """Serialize a project with computed progress."""
+    if not control_plane:
+        return {"id": project.id, "name": project.name}
+    progress = control_plane.project_progress(project.id)
+    return {
+        "id": project.id,
+        "name": project.name,
+        "description": project.description,
+        "goal": project.goal,
+        "status": project.status.value if hasattr(project.status, "value") else str(project.status),
+        "task_ids": list(project.task_ids),
+        "created_at": project.created_at.isoformat()
+        if hasattr(project, "created_at") and project.created_at
+        else None,
+        "progress": progress,
     }
 
 
@@ -134,6 +154,7 @@ async def update_dashboard_state():
         dashboard_state["tasks"] = [serialize_task(t) for t in tasks]
 
         # Get workflows
+        # Get workflows
         workflows = control_plane.list_workflows()
         dashboard_state["workflows"] = [
             {
@@ -144,6 +165,10 @@ async def update_dashboard_state():
             }
             for wf in workflows
         ]
+
+        # Get projects (with computed progress)
+        projects = control_plane.list_projects()
+        dashboard_state["projects"] = [serialize_project(p) for p in projects]
 
         # Update metrics
         dashboard_state["metrics"] = {
@@ -158,6 +183,7 @@ async def update_dashboard_state():
                 ]
             ),
             "total_agents": len(agents),
+            "total_projects": len(projects),
         }
 
         # Broadcast update
@@ -298,6 +324,7 @@ async def create_task(task_data: Dict[str, Any]):
         name=task_data.get("name", "Untitled Task"),
         description=task_data.get("description", ""),
         required_capability=task_data.get("required_capability", ""),
+        project_id=task_data.get("project_id"),
         payload=task_data.get("payload", {}),
         priority=task_data.get("priority", 5),
         dependencies=task_data.get("dependencies", []),
@@ -306,6 +333,41 @@ async def create_task(task_data: Dict[str, Any]):
     task_id = control_plane.submit_task(task)
     await update_dashboard_state()
     return JSONResponse({"task_id": task_id, "task": serialize_task(task)})
+
+
+# ----- Project endpoints -----
+@app.get("/api/projects")
+async def get_projects():
+    """List all projects with computed progress."""
+    if not control_plane:
+        return JSONResponse({"projects": []})
+    return JSONResponse({"projects": [serialize_project(p) for p in control_plane.list_projects()]})
+
+
+@app.post("/api/projects")
+async def create_project(project_data: Dict[str, Any]):
+    """Create a new project."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    project = control_plane.create_project(
+        name=project_data.get("name", "Untitled Project"),
+        description=project_data.get("description", ""),
+        goal=project_data.get("goal", ""),
+    )
+    await update_dashboard_state()
+    return JSONResponse({"project_id": project.id, "project": serialize_project(project)})
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str):
+    """Get a project with its progress and tasks."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    project = control_plane.get_project(project_id)
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+    tasks = [serialize_task(t) for t in control_plane.get_project_tasks(project_id)]
+    return JSONResponse({"project": serialize_project(project), "tasks": tasks})
 
 
 @app.post("/api/tasks/{task_id}/cancel")
