@@ -176,9 +176,15 @@ class AgentLifecycleManager:
                 else:
                     result = await agent.execute_task(task)
 
-                task.result = result
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
+                # Capture usage (token/cost) from the agent result if present.
+                # We strip the raw object from the stored result so it serializes
+                # to JSON (usage is tracked separately on task.usage).
+                if isinstance(result, dict) and result.get("usage") is not None:
+                    task.usage = result.get("usage")
+                    result = {k: v for k, v in result.items() if k != "usage"}
+                task.result = result
                 agent.status = AgentStatus.IDLE
                 logger.info(f"Task {task.name} completed on agent {agent.name}")
                 self._notify_task_completed(task, result)

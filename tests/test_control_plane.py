@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from control_plane.core.interfaces import (
-    AgentInfo, AgentCapability, Task, TaskStatus, AgentStatus, MessageType
+    AgentInfo, AgentCapability, Task, TaskStatus, AgentStatus, MessageType, UsageRecord
 )
 from control_plane.agents.registry import AgentRegistry, AgentLifecycleManager
 from control_plane.orchestration.engine import TaskScheduler, WorkflowEngine, OrchestrationEngine
@@ -629,6 +629,51 @@ class TestSubtaskDecomposition:
         dep.status = TaskStatus.COMPLETED
         assert cp.orchestration.scheduler._dependencies_met(task) is True
         await cp.stop()
+
+
+class TestUsageTracking:
+    """Tests for OpenRouter token/model/cost usage tracking."""
+
+    @pytest.mark.asyncio
+    async def test_usage_totals_aggregates_across_tasks(self):
+        """usage_totals sums tokens/cost across tasks with usage records."""
+        cp = ControlPlane()
+        await cp.start()
+        t1 = Task(name="T1", required_capability="x")
+        t2 = Task(name="T2", required_capability="x")
+        t1.usage = UsageRecord(
+            model="deepseek/deepseek-v4", provider="openrouter",
+            input_tokens=100, output_tokens=50, cache_read_tokens=1000,
+            estimated_cost_usd=0.01, api_call_count=2,
+        )
+        t2.usage = UsageRecord(
+            model="deepseek/deepseek-v4", provider="openrouter",
+            input_tokens=200, output_tokens=100, cache_read_tokens=500,
+            estimated_cost_usd=0.02, api_call_count=1,
+        )
+        cp._tasks[t1.id] = t1
+        cp._tasks[t2.id] = t2
+        totals = cp.usage_totals()
+        assert totals["input_tokens"] == 300
+        assert totals["output_tokens"] == 150
+        assert totals["cache_read_tokens"] == 1500
+        assert totals["total_cost_usd"] == 0.03
+        assert totals["api_call_count"] == 3
+        assert totals["session_count"] == 2
+        assert totals["by_model"]["deepseek/deepseek-v4"] == 1950
+        await cp.stop()
+
+    def test_usage_record_properties(self):
+        """UsageRecord exposes prompt/completion/cost aliases."""
+        u = UsageRecord(
+            model="m", input_tokens=10, output_tokens=20,
+            estimated_cost_usd=0.5, actual_cost_usd=0.4,
+        )
+        assert u.prompt_tokens == 10
+        assert u.completion_tokens == 20
+        assert u.cost_usd == 0.4  # actual wins over estimated
+        u2 = UsageRecord(model="m", input_tokens=1, estimated_cost_usd=0.5)
+        assert u2.cost_usd == 0.5
 
 
 if __name__ == "__main__":

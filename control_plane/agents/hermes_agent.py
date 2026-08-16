@@ -21,6 +21,7 @@ from ..core.interfaces import (
     AgentCapability,
     AgentInfo,
     Task,
+    UsageRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,11 @@ class HermesAgent(Agent):
             # Parse session_id (Hermes emits it on stderr in quiet mode)
             self._session_id = self._parse_session_id(stdout) or self._parse_session_id(stderr)
 
+            # Fetch token/model/cost usage from the Hermes session store
+            usage = None
+            if self._session_id:
+                usage = self._fetch_usage(self._session_id)
+
             return {
                 "session_id": self._session_id,
                 "output": stdout.strip(),
@@ -119,6 +125,7 @@ class HermesAgent(Agent):
                 "agent_id": self.id,
                 "agent_name": self.name,
                 "completed_at": datetime.utcnow().isoformat(),
+                "usage": usage,
             }
         except Exception as e:
             logger.error(f"Hermes agent {self.name} task failed: {e}")
@@ -156,6 +163,61 @@ class HermesAgent(Agent):
             if line.startswith("session_id:"):
                 return line.split(":", 1)[1].strip()
         return None
+
+    def _fetch_usage(self, session_id: str) -> "UsageRecord":
+        """Query the Hermes session store for token/cost usage of a session.
+
+        Runs ``hermes sessions export --session-id ... --format jsonl -`` and
+        reads the usage fields Hermes records per session (input/output/cache
+        tokens, model, provider, estimated cost, API calls). Returns an empty
+        UsageRecord if the query fails or the session isn't found.
+        """
+        import json
+        import subprocess
+
+        record = UsageRecord(session_id=session_id, model=self.model or "")
+        try:
+            proc = subprocess.run(
+                [
+                    self.hermes_command,
+                    "sessions",
+                    "export",
+                    "--session-id",
+                    session_id,
+                    "--format",
+                    "jsonl",
+                    "-",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            for line in proc.stdout.splitlines():
+                if not line.strip():
+                    continue
+                data = json.loads(line)
+                record.model = data.get("model") or record.model
+                record.provider = data.get("billing_provider") or ""
+                record.input_tokens = int(data.get("input_tokens") or 0)
+                record.output_tokens = int(data.get("output_tokens") or 0)
+                record.cache_read_tokens = int(data.get("cache_read_tokens") or 0)
+                record.cache_write_tokens = int(data.get("cache_write_tokens") or 0)
+                record.reasoning_tokens = int(data.get("reasoning_tokens") or 0)
+                record.total_tokens = (
+                    record.input_tokens
+                    + record.output_tokens
+                    + record.cache_read_tokens
+                    + record.cache_write_tokens
+                )
+                record.api_call_count = int(data.get("api_call_count") or 0)
+                est = data.get("estimated_cost_usd")
+                act = data.get("actual_cost_usd")
+                record.estimated_cost_usd = float(est) if est is not None else 0.0
+                record.actual_cost_usd = float(act) if act is not None else None
+                break  # single session per query
+        except Exception as e:
+            logger.warning(f"Could not fetch usage for session {session_id}: {e}")
+        return record
 
     async def shutdown(self) -> None:
         """Terminate any running Hermes process."""

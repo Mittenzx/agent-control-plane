@@ -93,6 +93,27 @@ def serialize_agent(info) -> Dict[str, Any]:
     }
 
 
+def serialize_usage(usage) -> Optional[Dict[str, Any]]:
+    """Serialize a UsageRecord (or None) for JSON responses."""
+    if not usage:
+        return None
+    return {
+        "model": getattr(usage, "model", ""),
+        "provider": getattr(usage, "provider", ""),
+        "session_id": getattr(usage, "session_id", ""),
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
+        "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
+        "reasoning_tokens": getattr(usage, "reasoning_tokens", 0),
+        "total_tokens": getattr(usage, "total_tokens", 0),
+        "estimated_cost_usd": getattr(usage, "estimated_cost_usd", 0.0),
+        "actual_cost_usd": getattr(usage, "actual_cost_usd", None),
+        "cost_usd": getattr(usage, "cost_usd", 0.0),
+        "api_call_count": getattr(usage, "api_call_count", 0),
+    }
+
+
 def serialize_task(task: Task) -> Dict[str, Any]:
     """Serialize task for JSON response."""
     return {
@@ -117,6 +138,7 @@ def serialize_task(task: Task) -> Dict[str, Any]:
         "completed_at": task.completed_at.isoformat()
         if hasattr(task, "completed_at") and task.completed_at
         else None,
+        "usage": serialize_usage(getattr(task, "usage", None)),
     }
 
 
@@ -170,6 +192,9 @@ async def update_dashboard_state():
         # Get projects (with computed progress)
         projects = control_plane.list_projects()
         dashboard_state["projects"] = [serialize_project(p) for p in projects]
+
+        # Update usage totals
+        dashboard_state["usage"] = control_plane.usage_totals()
 
         # Update metrics
         dashboard_state["metrics"] = {
@@ -471,6 +496,14 @@ async def get_events(limit: int = 100):
 async def get_metrics():
     """Get system metrics."""
     return JSONResponse(dashboard_state["metrics"])
+
+
+@app.get("/api/usage")
+async def get_usage():
+    """Get aggregated token/model/cost usage across all tasks."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    return JSONResponse(control_plane.usage_totals())
 
 
 @app.get("/api/capabilities")

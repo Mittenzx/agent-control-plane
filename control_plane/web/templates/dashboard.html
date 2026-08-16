@@ -67,7 +67,7 @@
         </header>
 
         <!-- Stats Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6" id="stats-grid">
+        <div class="grid grid-cols-2 md:grid-cols-8 gap-4 mb-6" id="stats-grid">
             <div class="card p-4">
                 <div class="text-xs text-gray-500 mb-1">Projects</div>
                 <div id="stat-projects" class="text-2xl font-bold text-violet-400">0</div>
@@ -91,6 +91,14 @@
             <div class="card p-4">
                 <div class="text-xs text-gray-500 mb-1">Total Agents</div>
                 <div id="stat-total-agents" class="text-2xl font-bold text-emerald-400">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">OpenRouter Tokens</div>
+                <div id="stat-tokens" class="text-2xl font-bold text-amber-400">0</div>
+            </div>
+            <div class="card p-4">
+                <div class="text-xs text-gray-500 mb-1">Est. Cost</div>
+                <div id="stat-cost" class="text-2xl font-bold text-orange-400">$0.00</div>
             </div>
         </div>
 
@@ -217,6 +225,40 @@
             </div>
         </div>
 
+        <!-- OpenRouter Usage Panel -->
+        <div class="card p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-white">⚡ OpenRouter Usage</h2>
+                <span class="text-xs text-gray-500">token &amp; model usage across all tasks</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wide">Total Tokens</div>
+                    <div id="usage-total" class="text-lg font-bold text-white mt-1">0</div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wide">Input</div>
+                    <div id="usage-input" class="text-lg font-bold text-cyan-400 mt-1">0</div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wide">Output</div>
+                    <div id="usage-output" class="text-lg font-bold text-emerald-400 mt-1">0</div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wide">Cache</div>
+                    <div id="usage-cache" class="text-lg font-bold text-violet-400 mt-1">0</div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wide">Est. Cost</div>
+                    <div id="usage-cost" class="text-lg font-bold text-orange-400 mt-1">$0.00</div>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <div id="usage-models" class="flex flex-wrap gap-2"></div>
+            </div>
+            <div class="text-[11px] text-gray-500 mt-3" id="usage-meta"></div>
+        </div>
+
         <!-- Bottom Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- Workflows Panel -->
@@ -326,6 +368,37 @@
             refreshCapabilities(agents);
             refreshProjectSelect(projects);
             renderHermesAgents(agents);
+            renderUsage(state.usage || {});
+        }
+
+        // ===== OpenRouter usage =====
+        function fmtTokens(n) {
+            if (n >= 1000000) return (n/1000000).toFixed(2) + 'M';
+            if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+            return String(n || 0);
+        }
+        function renderUsage(usage) {
+            document.getElementById('stat-tokens').textContent = fmtTokens(usage.total_tokens);
+            document.getElementById('stat-cost').textContent = '$' + (usage.total_cost_usd || 0).toFixed(4);
+            document.getElementById('usage-total').textContent = fmtTokens(usage.total_tokens);
+            document.getElementById('usage-input').textContent = fmtTokens(usage.input_tokens);
+            document.getElementById('usage-output').textContent = fmtTokens(usage.output_tokens);
+            document.getElementById('usage-cache').textContent = fmtTokens((usage.cache_read_tokens||0)+(usage.cache_write_tokens||0));
+            document.getElementById('usage-cost').textContent = '$' + (usage.total_cost_usd || 0).toFixed(4);
+
+            const byModel = usage.by_model || {};
+            const modelsEl = document.getElementById('usage-models');
+            const entries = Object.entries(byModel);
+            if (entries.length) {
+                modelsEl.innerHTML = entries.map(([model, toks]) => `
+                    <span class="px-2 py-1 text-[10px] bg-orange-950/40 text-orange-300 border border-orange-800/60 rounded-full">
+                        ${model} · ${fmtTokens(toks)} tok
+                    </span>`).join('');
+            } else {
+                modelsEl.innerHTML = '<span class="text-xs text-gray-600">No usage yet — run a task on Hermes to see OpenRouter tokens/cost.</span>';
+            }
+            document.getElementById('usage-meta').textContent =
+                `${usage.session_count||0} session(s) · ${usage.api_call_count||0} API calls · ${usage.reasoning_tokens||0} reasoning tokens`;
         }
 
         // ===== Projects =====

@@ -511,7 +511,59 @@ class ControlPlane(ControlPlaneInterface):
         if parent.project_id:
             self._associate_task_with_project(parent)
 
+    def usage_totals(self) -> Dict[str, Any]:
+        """Aggregate token/model usage across all completed tasks.
+
+        Returns totals for input/output/cache/reasoning tokens, total cost,
+        and per-model breakdowns.
+        """
+        total_input = 0
+        total_output = 0
+        total_cache_read = 0
+        total_cache_write = 0
+        total_reasoning = 0
+        total_cost = 0.0
+        total_api_calls = 0
+        by_model: Dict[str, int] = {}
+        session_count = 0
+
+        for task in self._tasks.values():
+            u = task.usage
+            if not u:
+                continue
+            session_count += 1
+            total_input += u.input_tokens or 0
+            total_output += u.output_tokens or 0
+            total_cache_read += u.cache_read_tokens or 0
+            total_cache_write += u.cache_write_tokens or 0
+            total_reasoning += u.reasoning_tokens or 0
+            total_cost += u.cost_usd or 0.0
+            total_api_calls += u.api_call_count or 0
+            model = u.model or "unknown"
+            model_tokens = (
+                (u.input_tokens or 0)
+                + (u.output_tokens or 0)
+                + (u.cache_read_tokens or 0)
+                + (u.cache_write_tokens or 0)
+            )
+            by_model[model] = by_model.get(model, 0) + model_tokens
+
+        total = total_input + total_output + total_cache_read + total_cache_write
+        return {
+            "total_tokens": total,
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "cache_read_tokens": total_cache_read,
+            "cache_write_tokens": total_cache_write,
+            "reasoning_tokens": total_reasoning,
+            "total_cost_usd": round(total_cost, 6),
+            "api_call_count": total_api_calls,
+            "session_count": session_count,
+            "by_model": by_model,
+        }
+
     def task_tree(self, task_id: str) -> Dict[str, Any]:
+        """Return a task and its subtasks nested (for dashboards)."""
         """Return a task and its subtasks nested (for dashboards)."""
         task = self._tasks.get(task_id)
         if not task:

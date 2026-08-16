@@ -117,6 +117,43 @@ class Task:
     metadata: Dict[str, Any] = field(default_factory=dict)
     priority: int = 0
     timeout_seconds: Optional[float] = None
+    usage: Optional["UsageRecord"] = None
+
+
+@dataclass
+class UsageRecord:
+    """Token + cost usage for a single task execution (from Hermes/OpenRouter).
+
+    Mirrors the usage fields Hermes records per session in its session store.
+    ``provider`` is the billing provider (e.g. ``openrouter``).
+    """
+
+    model: str = ""
+    provider: str = ""
+    session_id: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    actual_cost_usd: Optional[float] = None
+    api_call_count: int = 0
+
+    @property
+    def prompt_tokens(self) -> int:
+        """Alias: input tokens are the prompt tokens."""
+        return self.input_tokens
+
+    @property
+    def completion_tokens(self) -> int:
+        """Alias: output tokens are the completion tokens."""
+        return self.output_tokens
+
+    @property
+    def cost_usd(self) -> float:
+        return self.actual_cost_usd or self.estimated_cost_usd
 
 
 @dataclass

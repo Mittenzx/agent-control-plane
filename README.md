@@ -193,8 +193,30 @@ Then open **http://localhost:8080** in your browser.
 - **Workflow view** — monitor multi-step workflows and their task dependencies
 - **System metrics** — total/completed/failed tasks, active agent count
 - **WebSocket push** — the dashboard updates in real time as agents work, no page refresh
-- **REST API** — full programmatic control (`/api/agents`, `/api/tasks`, `/api/workflows`, `/api/state`, ...)
+- **REST API** — full programmatic control (`/api/agents`, `/api/tasks`, `/api/workflows`, `/api/state`, `/api/usage`, ...)
 - **Interactive task submission** — create tasks with name + required capability from the UI
+- **OpenRouter usage tracking** — the dashboard shows real token & cost usage per model across all tasks
+
+### OpenRouter token / model usage
+
+Because control-plane agents run on **Hermes**, which talks to OpenRouter, the control plane captures usage automatically from the Hermes session store after each task completes. Every task records a `UsageRecord` with:
+
+- **model** (e.g. `deepseek/deepseek-v4-flash-0731`) and **provider** (`openrouter`)
+- **input / output / cache-read / cache-write / reasoning tokens**
+- **estimated (and actual) cost in USD** + API call count
+
+Aggregated across all tasks via `cp.usage_totals()`:
+
+```python
+totals = cp.usage_totals()
+# {'total_tokens': 21095, 'input_tokens': 20031, 'output_tokens': 40,
+#  'cache_read_tokens': 1024, ..., 'total_cost_usd': 0.002844,
+#  'by_model': {'deepseek/deepseek-v4-flash-0731': 21095}, ...}
+```
+
+The dashboard shows a live **⚡ OpenRouter Usage** panel (total tokens, input/output/cache, estimated cost, per-model breakdown) updated in real time via WebSocket. A `GET /api/usage` endpoint returns the same aggregate. Per-task usage is included in `GET /api/tasks/{id}`.
+
+No API key is stored or required by the control plane — usage is read from the Hermes session store that OpenRouter-backed Hermes agents already populate.
 
 ### Screenshot
 
