@@ -642,7 +642,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await connection_manager.disconnect(websocket)
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8080):
+def run_server(host: str = "0.0.0.0", port: int = 8090):
     """Run the dashboard server."""
     import uvicorn
 

@@ -181,10 +181,10 @@ The control plane ships with a real-time monitoring dashboard built on **FastAPI
 # From the project root
 python -m control_plane.web
 # Or via uvicorn directly
-python -m uvicorn control_plane.web.server:app --port 8080
+python -m uvicorn control_plane.web.server:app --port 8090
 ```
 
-Then open **http://localhost:8080** in your browser.
+Then open **http://localhost:8090** in your browser.
 
 ### Features
 
