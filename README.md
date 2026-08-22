@@ -196,6 +196,26 @@ Then open **http://localhost:8080** in your browser.
 - **REST API** — full programmatic control (`/api/agents`, `/api/tasks`, `/api/workflows`, `/api/state`, `/api/usage`, ...)
 - **Interactive task submission** — create tasks with name + required capability from the UI
 - **OpenRouter usage tracking** — the dashboard shows real token & cost usage per model across all tasks
+- **Task filtering** — filter the task board by search text, status, and project
+- **Project budgets & cost alerts** — set a spend budget per project; the dashboard flags projects at/over budget
+- **Auto-refreshing project status** — `Project.status` updates live as tasks transition (pending → running → completed)
+- **SQLite persistence** — projects, tasks, and usage survive a restart (stored in `data/control-plane.db`)
+
+### Persistence & budgets
+
+The control plane persists state to a local SQLite database (`data/control-plane.db`) when `persistence_enabled=True` (the default). Projects, tasks (including their `UsageRecord`s), and statuses are written on every change and reloaded on startup, so the dashboard survives restarts:
+
+```python
+config = ControlPlaneConfig(data_dir="./data", persistence_enabled=True)
+cp = ControlPlane(config)
+```
+
+Projects support an optional spend **budget** (`project.budget_usd`). The dashboard shows a per-project cost/budget bar and fires **cost alerts** when a project reaches 80% or exceeds 100% of its budget. API:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/projects/{id}/budget` | Set (or clear) a project's budget |
+| GET | `/api/state` | Includes aggregated cost alerts (`alerts`) |
 
 ### OpenRouter token / model usage
 

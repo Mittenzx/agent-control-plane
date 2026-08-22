@@ -4,6 +4,7 @@ Main Control Plane - ties all components together.
 
 import asyncio
 import logging
+import os
 import uuid
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -21,6 +22,7 @@ from ..core.interfaces import (
     ControlPlane as ControlPlaneInterface,
 )
 from ..orchestration.engine import Workflow
+from ..persistence.store import PersistenceStore
 from ..agents.registry import AgentRegistry, AgentLifecycleManager
 from ..orchestration.engine import OrchestrationEngine
 from ..messaging.bus import RequestResponseBus, EventBus, SystemEvents
@@ -71,6 +73,16 @@ class ControlPlane(ControlPlaneInterface):
         # dependency resolution works across all tasks/subtasks.
         self.orchestration.scheduler._task_store = self._tasks
 
+        # SQLite persistence (projects/tasks/usage survive restarts)
+        self._store: Optional[PersistenceStore] = None
+        if self.config.persistence_enabled:
+            db_path = os.path.join(self.config.data_dir, "control-plane.db")
+            try:
+                self._store = PersistenceStore(db_path)
+            except Exception as e:
+                logger.warning(f"Persistence disabled: {e}")
+                self._store = None
+
         # Wire up event handlers
         self._setup_event_handlers()
 
@@ -105,6 +117,9 @@ class ControlPlane(ControlPlaneInterface):
         # Task completion callback (for subtask aggregation + agent-driven spawn)
         self.lifecycle.add_task_completed_callback(self._on_task_completed)
 
+        # Task status-change callback (keeps project status live as tasks transition)
+        self.lifecycle.add_task_status_callback(self._on_task_status_change)
+
     async def start(self) -> None:
         """Start the control plane and all components."""
         if self._running:
@@ -113,6 +128,9 @@ class ControlPlane(ControlPlaneInterface):
 
         self._running = True
         self._started_at = datetime.utcnow()
+
+        # Load persisted projects/tasks/usage from SQLite (if enabled)
+        self._load_from_store()
 
         # Start orchestration engine
         await self.orchestration.start()
@@ -151,6 +169,14 @@ class ControlPlane(ControlPlaneInterface):
         await self.event_bus.emit(
             SystemEvents.AGENT_UNREGISTERED, {"control_plane": self.config.name}
         )
+
+        # Persist state to SQLite on shutdown
+        self._persist()
+        if self._store:
+            try:
+                self._store.close()
+            except Exception:
+                pass
 
         logger.info(f"Control plane stopped: {self.config.name}")
 
@@ -283,6 +309,7 @@ class ControlPlane(ControlPlaneInterface):
             },
         )
 
+        self._persist()
         return task.id
 
     # ----- Project management -----
@@ -301,6 +328,7 @@ class ControlPlane(ControlPlaneInterface):
             "project.created",
             {"project_id": project.id, "project_name": project.name},
         )
+        self._persist()
         return project
 
     def get_project(self, project_id: str) -> Optional[Project]:
@@ -339,6 +367,9 @@ class ControlPlane(ControlPlaneInterface):
         elif running or pending:
             status = TaskStatus.RUNNING
 
+        # Per-project cost rollup (sum of UsageRecord cost for this project's tasks)
+        cost = sum((t.usage.cost_usd or 0.0) for t in tasks if t.usage)
+
         return {
             "total": total,
             "completed": done,
@@ -347,6 +378,7 @@ class ControlPlane(ControlPlaneInterface):
             "pending": pending,
             "progress_pct": pct,
             "status": status.value,
+            "cost_usd": round(cost, 6),
         }
 
     def _associate_task_with_project(self, task: Task) -> None:
@@ -360,6 +392,61 @@ class ControlPlane(ControlPlaneInterface):
         project.updated_at = datetime.utcnow()
         progress = self.project_progress(project.id)
         project.status = TaskStatus(progress["status"])
+
+    def project_cost(self, project_id: str) -> float:
+        """Total OpenRouter cost (USD) summed across a project's tasks."""
+        return round(
+            sum((t.usage.cost_usd or 0.0) for t in self.get_project_tasks(project_id) if t.usage),
+            6,
+        )
+
+    def set_project_budget(self, project_id: str, budget_usd: Optional[float]) -> None:
+        """Set (or clear) a project's spend budget used to trigger alerts."""
+        project = self.get_project(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+        project.budget_usd = budget_usd
+        project.updated_at = datetime.utcnow()
+        self._persist()
+        logger.info(f"Project {project.name} budget set to {budget_usd}")
+
+    def cost_alerts(self) -> List[Dict[str, Any]]:
+        """Return budget-exceeded alerts across all projects.
+
+        A project with a ``budget_usd`` whose total cost has reached or passed
+        that threshold produces an alert. Also flags projects that are close
+        (>= 80% of budget).
+        """
+        alerts = []
+        for project in self.list_projects():
+            budget = project.budget_usd
+            if not budget:
+                continue
+            cost = self.project_cost(project.id)
+            pct = cost / budget if budget else 0.0
+            if cost >= budget:
+                alerts.append(
+                    {
+                        "level": "critical",
+                        "project_id": project.id,
+                        "project": project.name,
+                        "cost_usd": cost,
+                        "budget_usd": budget,
+                        "message": f"Project '{project.name}' exceeded its ${budget:.2f} budget (spent ${cost:.4f})",
+                    }
+                )
+            elif pct >= 0.8:
+                alerts.append(
+                    {
+                        "level": "warning",
+                        "project_id": project.id,
+                        "project": project.name,
+                        "cost_usd": cost,
+                        "budget_usd": budget,
+                        "message": f"Project '{project.name}' has used {pct:.0%} of its ${budget:.2f} budget",
+                    }
+                )
+        return alerts
 
     # ----- Subtask / decomposition support -----
 
@@ -398,7 +485,26 @@ class ControlPlane(ControlPlaneInterface):
         parent_task.metadata["has_subtasks"] = True
         parent_task.metadata["subtask_ids"] = [st.id for st in subtasks]
         logger.info(f"Parent task {parent_task.name} decomposed into {len(subtasks)} subtask(s)")
+        self._persist()
         return subtasks
+
+    def _on_task_status_change(
+        self, task: Task, old_status: TaskStatus, new_status: TaskStatus
+    ) -> None:
+        """Refresh project status whenever any task changes state.
+
+        This keeps ``Project.status`` accurate in the backend as tasks move
+        through pending -> running -> completed/failed/cancelled (not just on
+        completion), so the stored status always reflects live progress.
+        """
+        if not task.project_id:
+            return
+        project = self.get_project(task.project_id)
+        if not project:
+            return
+        progress = self.project_progress(project.id)
+        project.status = TaskStatus(progress["status"])
+        project.updated_at = datetime.utcnow()
 
     def _on_task_completed(self, task: Task, result: Optional[Dict[str, Any]]) -> None:
         """Handle task completion: refresh project + drive spawning/aggregation."""
@@ -436,6 +542,8 @@ class ControlPlane(ControlPlaneInterface):
                 progress = self.project_progress(project.id)
                 project.status = TaskStatus(progress["status"])
                 project.updated_at = datetime.utcnow()
+
+        self._persist()
 
     @staticmethod
     def _extract_spawn_from_output(output: str) -> Optional[List[Dict[str, Any]]]:
@@ -510,6 +618,41 @@ class ControlPlane(ControlPlaneInterface):
         # Refresh any enclosing project
         if parent.project_id:
             self._associate_task_with_project(parent)
+        self._persist()
+
+    def flush(self) -> None:
+        """Public hook to persist any in-memory state changes immediately."""
+        self._persist()
+
+    def _persist(self) -> None:
+        """Write current projects/tasks (with usage) to the SQLite store."""
+        if not self._store:
+            return
+        try:
+            self._store.save_projects(list(self._projects.values()))
+            self._store.save_tasks(list(self._tasks.values()))
+        except Exception as e:
+            logger.error(f"Persistence write failed: {e}")
+
+    def _load_from_store(self) -> None:
+        """Load projects/tasks saved in SQLite into memory on startup."""
+        if not self._store:
+            return
+        try:
+            for p in self._store.load_projects():
+                self._projects[p.id] = p
+            tasks = self._store.load_tasks()
+            # Only restore tasks that were not terminal (active work continues
+            # across restart); terminal ones are retained for history/usage.
+            for t in tasks:
+                if t.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                    t.status = TaskStatus.PENDING  # restart-eligible
+                self._tasks[t.id] = t
+            logger.info(
+                f"Loaded {len(self._projects)} project(s), {len(tasks)} task(s) from {self.config.data_dir}"
+            )
+        except Exception as e:
+            logger.error(f"Persistence read failed: {e}")
 
     def usage_totals(self) -> Dict[str, Any]:
         """Aggregate token/model usage across all completed tasks.

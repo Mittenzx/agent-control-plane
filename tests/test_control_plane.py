@@ -676,5 +676,82 @@ class TestUsageTracking:
         assert u2.cost_usd == 0.5
 
 
+class TestCostAlerts:
+    """Tests for project budgets and cost alerts."""
+
+    @pytest.mark.asyncio
+    async def test_project_cost_rollup_and_budget_alert(self):
+        """project_cost sums usage; cost_alerts flags over-budget projects."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("Spendy", goal="burn budget")
+        cp.set_project_budget(p.id, 0.10)
+        # attach usage exceeding the budget
+        t1 = Task(name="T1", required_capability="x", project_id=p.id)
+        t1.usage = UsageRecord(
+            model="m", provider="openrouter", input_tokens=100,
+            output_tokens=100, estimated_cost_usd=0.15,
+        )
+        cp._tasks[t1.id] = t1
+        cp._associate_task_with_project(t1)
+        assert cp.project_cost(p.id) == 0.15
+        alerts = cp.cost_alerts()
+        assert len(alerts) == 1
+        assert alerts[0]["level"] == "critical"
+        assert alerts[0]["project"] == "Spendy"
+        await cp.stop()
+
+    @pytest.mark.asyncio
+    async def test_auto_project_status_transitions(self):
+        """Project.status updates live as tasks change status (RUNNING/COMPLETED)."""
+        cp = ControlPlane()
+        await cp.start()
+        p = cp.create_project("Auto", goal="track status")
+        t = Task(name="T", required_capability="x", project_id=p.id)
+        cp.submit_task(t)
+        cp._on_task_status_change(t, TaskStatus.PENDING, TaskStatus.RUNNING)
+        assert p.status == TaskStatus.RUNNING
+        t.status = TaskStatus.COMPLETED
+        cp._on_task_completed(t, {"ok": True})
+        assert p.status == TaskStatus.COMPLETED
+        await cp.stop()
+
+
+class TestPersistence:
+    """Tests for SQLite persistence of projects/tasks/usage."""
+
+    @pytest.mark.asyncio
+    async def test_restart_preserves_state(self):
+        """State (projects, tasks, usage, budgets) survives a restart on same dir."""
+        import tempfile
+
+        data_dir = tempfile.mkdtemp()
+        cfg = ControlPlaneConfig(data_dir=data_dir, persistence_enabled=True)
+        cp = ControlPlane(cfg)
+        await cp.start()
+        p = cp.create_project("Persist", goal="survive")
+        cp.set_project_budget(p.id, 5.0)
+        t = Task(name="T1", required_capability="x", project_id=p.id)
+        t.usage = UsageRecord(
+            model="m", provider="openrouter", input_tokens=10,
+            output_tokens=5, estimated_cost_usd=0.01,
+        )
+        t.status = TaskStatus.COMPLETED
+        cp._tasks[t.id] = t
+        cp._associate_task_with_project(t)
+        await cp.stop()
+
+        # Fresh control plane on the same data dir
+        cp2 = ControlPlane(ControlPlaneConfig(data_dir=data_dir, persistence_enabled=True))
+        await cp2.start()
+        assert len(cp2.list_projects()) == 1
+        assert cp2.list_projects()[0].budget_usd == 5.0
+        reloaded = cp2.get_task(t.id)
+        assert reloaded is not None
+        assert reloaded.status == TaskStatus.COMPLETED
+        assert reloaded.usage.cost_usd == 0.01
+        await cp2.stop()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

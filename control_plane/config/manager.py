@@ -31,6 +31,7 @@ class ControlPlaneConfig:
     version: str = "0.1.0"
     log_level: str = "INFO"
     data_dir: str = "./data"
+    persistence_enabled: bool = True  # persist projects/tasks/usage to SQLite
 
     # Agent configurations
     agents: List[AgentConfig] = field(default_factory=list)

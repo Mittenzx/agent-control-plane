@@ -85,6 +85,7 @@ class Project:
     goal: str = ""
     status: TaskStatus = TaskStatus.PENDING
     task_ids: List[str] = field(default_factory=list)
+    budget_usd: Optional[float] = None  # spend threshold for alerts
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)

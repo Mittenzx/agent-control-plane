@@ -154,6 +154,7 @@ def serialize_project(project) -> Dict[str, Any]:
         "goal": project.goal,
         "status": project.status.value if hasattr(project.status, "value") else str(project.status),
         "task_ids": list(project.task_ids),
+        "budget_usd": getattr(project, "budget_usd", None),
         "created_at": project.created_at.isoformat()
         if hasattr(project, "created_at") and project.created_at
         else None,
@@ -211,6 +212,9 @@ async def update_dashboard_state():
             "total_agents": len(agents),
             "total_projects": len(projects),
         }
+
+        # Cost/usage alerts (budget thresholds)
+        dashboard_state["alerts"] = control_plane.cost_alerts()
 
         # Broadcast update
         await connection_manager.broadcast("state_update", dashboard_state)
@@ -380,6 +384,10 @@ async def create_project(project_data: Dict[str, Any]):
         description=project_data.get("description", ""),
         goal=project_data.get("goal", ""),
     )
+    budget = project_data.get("budget_usd")
+    if budget is not None:
+        project.budget_usd = float(budget)
+        control_plane.flush()
     await update_dashboard_state()
     return JSONResponse({"project_id": project.id, "project": serialize_project(project)})
 
@@ -394,6 +402,20 @@ async def get_project(project_id: str):
         return JSONResponse({"error": "Project not found"}, status_code=404)
     tasks = [serialize_task(t) for t in control_plane.get_project_tasks(project_id)]
     return JSONResponse({"project": serialize_project(project), "tasks": tasks})
+
+
+@app.post("/api/projects/{project_id}/budget")
+async def set_project_budget(project_id: str, body: Optional[Dict[str, Any]] = None):
+    """Set (or clear) a project's spend budget for cost alerts."""
+    if not control_plane:
+        return JSONResponse({"error": "Control plane not running"}, status_code=503)
+    body = body or {}
+    try:
+        control_plane.set_project_budget(project_id, body.get("budget_usd"))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    await update_dashboard_state()
+    return JSONResponse({"success": True, "project_id": project_id})
 
 
 @app.post("/api/tasks/{task_id}/cancel")

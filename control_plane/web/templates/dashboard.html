@@ -38,6 +38,7 @@
         .flash-row { animation: flash 1s ease; }
         @keyframes flash { from { background: rgba(34,211,238,0.15); } to { background: transparent; } }
         .progress-bar { height: 8px; border-radius: 9999px; background: #1f2937; overflow: hidden; }
+        .budget-bar { height: 5px; border-radius: 9999px; background: #1f2937; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease; }
         select, input, textarea { color-scheme: dark; }
         .tab-btn { transition: all .15s ease; }
@@ -116,6 +117,9 @@
                     <div id="stat-cost" class="text-2xl font-bold text-orange-400">$0.00</div>
                 </div>
             </div>
+
+            <!-- Cost Alerts -->
+            <div id="alerts-banner" class="mb-6 space-y-2"></div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <!-- Workflows Panel -->
@@ -197,6 +201,21 @@
                     <h2 class="text-sm font-semibold text-white">Tasks</h2>
                     <span class="text-xs text-gray-500">grouped by project</span>
                 </div>
+                <div class="flex flex-wrap gap-2 mb-3">
+                    <input id="task-filter-search" type="text" placeholder="🔍 Search tasks..." class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 flex-1 min-w-32">
+                    <select id="task-filter-status" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
+                        <option value="">All statuses</option>
+                        <option value="RUNNING">Running</option>
+                        <option value="PENDING">Pending</option>
+                        <option value="QUEUED">Queued</option>
+                        <option value="COMPLETED">Completed</option>
+                        <option value="FAILED">Failed</option>
+                    </select>
+                    <select id="task-filter-project" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-cyan-500">
+                        <option value="">All projects</option>
+                    </select>
+                    <button onclick="clearTaskFilters()" class="px-2 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors">Clear</button>
+                </div>
                 <div id="tasks-list" class="space-y-2 max-h-[70vh] overflow-y-auto scrollbar pr-1">
                     <div class="text-xs text-gray-600 py-8 text-center">Loading tasks...</div>
                 </div>
@@ -211,9 +230,10 @@
                         <h2 class="text-sm font-semibold text-white">Projects</h2>
                         <p class="text-xs text-gray-500 mt-0.5">A project is a goal you're working toward. Tasks are the steps that move it forward.</p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 flex-wrap">
                         <input id="project-name" type="text" placeholder="Project name" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-violet-500 w-44">
                         <input id="project-goal" type="text" placeholder="What are you trying to achieve?" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-violet-500 flex-1 min-w-52">
+                        <input id="project-budget" type="number" step="0.01" min="0" placeholder="Budget $" class="px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-violet-500 w-24">
                         <button onclick="createProject()" class="px-3 py-1 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors whitespace-nowrap">New Project</button>
                     </div>
                 </div>
@@ -392,8 +412,21 @@
             renderProjects(projects);
             refreshCapabilities(agents);
             refreshProjectSelect(projects);
+            refreshProjectFilter(projects);
             renderHermesAgents(agents);
             renderUsage(state.usage || {});
+            renderAlerts(state.alerts || []);
+        }
+
+        // ===== Cost alerts =====
+        function renderAlerts(alerts) {
+            const el = document.getElementById('alerts-banner');
+            if (!alerts.length) { el.innerHTML = ''; return; }
+            el.innerHTML = alerts.map(a => `
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${a.level==='critical' ? 'bg-rose-950/40 border-rose-800 text-rose-300' : 'bg-amber-950/40 border-amber-800 text-amber-300'}">
+                    <span>${a.level==='critical' ? '🚨' : '⚠️'}</span>
+                    <span>${a.message}</span>
+                </div>`).join('');
         }
 
         // ===== OpenRouter usage =====
@@ -436,6 +469,9 @@
             container.innerHTML = projects.map(p => {
                 const pr = p.progress || {};
                 const pct = pr.progress_pct || 0;
+                const cost = pr.cost_usd || 0;
+                const budget = p.budget_usd;
+                const budgetPct = budget ? Math.min(100, Math.round(cost/budget*100)) : 0;
                 return `
                 <div class="border border-gray-800 rounded-lg p-3 bg-gray-900 flex flex-col">
                     <div class="flex items-start justify-between gap-2 mb-1">
@@ -451,25 +487,38 @@
                         ${pr.running?` · <span class="text-cyan-400">${pr.running} running</span>`:''}
                         ${pr.failed?` · <span class="text-rose-400">${pr.failed} failed</span>`:''}
                     </div>
+                    <div class="text-[11px] mt-1 ${cost>0?'text-orange-400':'text-gray-500'}">💲 ${cost.toFixed?cost.toFixed(4):'0.0000'} ${budget?`<span class="text-gray-600">/ $${budget} budget</span>`:''}</div>
+                    ${budget ? `<div class="budget-bar flex-1 mb-1"><div class="progress-fill ${budgetColor(budgetPct)}" style="width:${budgetPct}%"></div></div>` : ''}
                     <button onclick="viewProject('${p.id}')" class="mt-2 text-[11px] text-violet-400 hover:text-violet-300 text-left transition-colors">View tasks →</button>
                 </div>`;
             }).join('');
         }
 
+        function budgetColor(pct) {
+            if (pct >= 100) return 'bg-rose-500';
+            if (pct >= 80) return 'bg-amber-500';
+            return 'bg-orange-500';
+        }
+
         async function createProject() {
             const name = document.getElementById('project-name').value;
             const goal = document.getElementById('project-goal').value;
+            const budget = document.getElementById('project-budget').value;
             if (!name) { showTaskFeedback('Enter a project name', 'error'); return; }
             try {
                 const res = await fetch('/api/projects', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name: name, goal: goal, description: goal})
+                    body: JSON.stringify({
+                        name: name, goal: goal, description: goal,
+                        budget_usd: budget ? parseFloat(budget) : null
+                    })
                 });
                 const data = await res.json();
                 if (data.project_id) {
                     document.getElementById('project-name').value = '';
                     document.getElementById('project-goal').value = '';
+                    document.getElementById('project-budget').value = '';
                     showTaskFeedback('Created project "' + name + '"', 'success');
                     addEvent('project.created', {project_name: name});
                 } else {
@@ -533,8 +582,25 @@
         // ===== Tasks (grouped by project) =====
         function renderTasks(tasks) {
             const container = document.getElementById('tasks-list');
-            if (!tasks.length) {
-                container.innerHTML = '<div class="text-xs text-gray-600 py-8 text-center">No tasks yet — submit one above.</div>';
+
+            // Apply filters (search text, status, project)
+            const search = (document.getElementById('task-filter-search').value || '').toLowerCase().trim();
+            const status = document.getElementById('task-filter-status').value;
+            const projectFilter = document.getElementById('task-filter-project').value;
+
+            let filtered = tasks;
+            if (search) {
+                filtered = filtered.filter(t => (t.name||'').toLowerCase().includes(search)
+                    || (t.description||'').toLowerCase().includes(search)
+                    || (t.required_capability||'').toLowerCase().includes(search));
+            }
+            if (status) filtered = filtered.filter(t => t.status === status);
+            if (projectFilter) filtered = filtered.filter(t => (t.project_id||'') === projectFilter);
+
+            if (!filtered.length) {
+                container.innerHTML = tasks.length
+                    ? '<div class="text-xs text-gray-600 py-8 text-center">No tasks match the current filters.</div>'
+                    : '<div class="text-xs text-gray-600 py-8 text-center">No tasks yet — submit one above.</div>';
                 return;
             }
 
@@ -544,7 +610,7 @@
             // Group: tasks with a project first (by project), then standalone
             const byProject = {};
             const standalone = [];
-            tasks.forEach(t => {
+            filtered.forEach(t => {
                 if (t.project_id) {
                     (byProject[t.project_id] = byProject[t.project_id] || []).push(t);
                 } else {
@@ -572,6 +638,24 @@
             }
 
             container.innerHTML = html;
+        }
+
+        function refreshProjectFilter(projects) {
+            const select = document.getElementById('task-filter-project');
+            const current = select.value;
+            let html = '<option value="">All projects</option>';
+            (projects || []).forEach(p => {
+                html += `<option value="${p.id}" ${p.id === current ? 'selected' : ''}>${p.name}</option>`;
+            });
+            select.innerHTML = html;
+        }
+
+        function clearTaskFilters() {
+            document.getElementById('task-filter-search').value = '';
+            document.getElementById('task-filter-status').value = '';
+            document.getElementById('task-filter-project').value = '';
+            // Re-render from the last state
+            fetch('/api/state').then(r => r.json()).then(d => renderState(d)).catch(() => {});
         }
 
         function taskRow(task) {
@@ -852,6 +936,15 @@
         refreshHermesSessions();
         setInterval(refreshWorkflows, 5000);
         setInterval(refreshHermesSessions, 10000);
+
+        // Re-render tasks immediately when a filter changes
+        ['task-filter-search', 'task-filter-status', 'task-filter-project'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => {
+                fetch('/api/state').then(r => r.json()).then(d => renderState(d)).catch(() => {});
+            });
+        });
 
         async function pollState() {
             try {

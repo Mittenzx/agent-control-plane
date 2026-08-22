@@ -117,12 +117,31 @@ class AgentLifecycleManager:
         self._running_tasks: Dict[str, asyncio.Task] = {}  # task_id -> task
         self._shutting_down: Dict[str, asyncio.Task] = {}
         self._task_completed_callbacks: List[Callable[[Task, Optional[Dict[str, Any]]], None]] = []
+        self._task_status_callbacks: List[Callable[[Task, TaskStatus, TaskStatus], None]] = []
 
     def add_task_completed_callback(
         self, callback: Callable[[Task, Optional[Dict[str, Any]]], None]
     ) -> None:
         """Register a callback fired when a task completes."""
         self._task_completed_callbacks.append(callback)
+
+    def add_task_status_callback(
+        self, callback: Callable[[Task, TaskStatus, TaskStatus], None]
+    ) -> None:
+        """Register a callback fired when a task's status changes (old, new)."""
+        self._task_status_callbacks.append(callback)
+
+    def _set_task_status(self, task: Task, new_status: TaskStatus) -> None:
+        """Update a task's status and fire status-change callbacks."""
+        old = task.status
+        if old == new_status:
+            return
+        task.status = new_status
+        for cb in self._task_status_callbacks:
+            try:
+                cb(task, old, new_status)
+            except Exception as e:
+                logger.error(f"Task status callback error: {e}")
 
     async def initialize_agent(self, agent: Agent) -> None:
         """Initialize an agent."""
@@ -162,7 +181,7 @@ class AgentLifecycleManager:
             )
 
         agent.status = AgentStatus.RUNNING
-        task.status = TaskStatus.RUNNING
+        self._set_task_status(task, TaskStatus.RUNNING)
         task.assigned_agent_id = agent_id
         task.started_at = datetime.utcnow()
 
@@ -176,7 +195,7 @@ class AgentLifecycleManager:
                 else:
                     result = await agent.execute_task(task)
 
-                task.status = TaskStatus.COMPLETED
+                self._set_task_status(task, TaskStatus.COMPLETED)
                 task.completed_at = datetime.utcnow()
                 # Capture usage (token/cost) from the agent result if present.
                 # We strip the raw object from the stored result so it serializes
@@ -190,14 +209,14 @@ class AgentLifecycleManager:
                 self._notify_task_completed(task, result)
                 return result
             except asyncio.TimeoutError:
-                task.status = TaskStatus.FAILED
+                self._set_task_status(task, TaskStatus.FAILED)
                 task.error = f"Task timed out after {timeout}s"
                 agent.status = AgentStatus.FAILED
                 logger.error(f"Task {task.name} timed out on agent {agent.name}")
                 self._notify_task_completed(task, None)
                 raise
             except Exception as e:
-                task.status = TaskStatus.FAILED
+                self._set_task_status(task, TaskStatus.FAILED)
                 task.error = str(e)
                 agent.status = AgentStatus.FAILED
                 logger.error(f"Task {task.name} failed on agent {agent.name}: {e}")
